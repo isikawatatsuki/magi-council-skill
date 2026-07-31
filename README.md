@@ -1,4 +1,5 @@
-<img width="1254" height="1254" alt="magi-council-skills" src="https://github.com/user-attachments/assets/212f16d7-8849-4a18-a469-05b22b377578" />
+![Uploading ChatGPT Image 2026年7月31日 10_10_49.png…]()
+
 
 # MAGI Council Agent Skill
 
