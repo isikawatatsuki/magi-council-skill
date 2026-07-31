@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 800" role="img" aria-labelledby="title description">
+  <title id="title">MAGI Council: 質問から回答まで</title>
+  <desc id="description">同一の質問と判断材料を三人格へ配布し、独立評価、封印投票、決定論的採決を経てユーザーへ回答する流れ。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="context-stroke"/></marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#111820" flood-opacity=".12"/></filter>
+  </defs>
+  <rect width="1000" height="800" fill="#F8F9F7"/>
+  <g font-family="Noto Sans JP, Yu Gothic, sans-serif" letter-spacing="0" fill="#111820">
+    <text x="500" y="50" text-anchor="middle" font-size="25" font-weight="700">質問から回答まで / Question to answer</text>
+    <g filter="url(#shadow)"><rect x="330" y="80" width="340" height="68" rx="7" fill="#fff" stroke="#111820" stroke-width="2"/></g>
+    <text x="500" y="108" text-anchor="middle" font-size="16" font-weight="700">1. ユーザーが質問</text><text x="500" y="132" text-anchor="middle" font-size="13" fill="#59636E">User asks MAGI to decide</text>
+    <path d="M500 148V180" fill="none" stroke="#59636E" stroke-width="2" marker-end="url(#arrow)"/>
+    <g filter="url(#shadow)"><rect x="280" y="180" width="440" height="80" rx="7" fill="#F0F3F4" stroke="#59636E" stroke-width="2"/></g>
+    <text x="500" y="212" text-anchor="middle" font-size="15" font-weight="700">2. Orchestratorが質問と判断材料を整理</text><text x="500" y="238" text-anchor="middle" font-size="12" fill="#59636E">Normalize the question, evidence, constraints, and unknowns</text>
+    <path d="M500 260V310" fill="none" stroke="#59636E" stroke-width="2" marker-end="url(#arrow)"/>
+    <g filter="url(#shadow)"><rect x="250" y="310" width="500" height="68" rx="7" fill="#111820"/></g>
+    <text x="500" y="338" text-anchor="middle" font-size="16" font-weight="700" fill="#fff">3. 全人格に同一の質問・判断材料を配布</text><text x="500" y="361" text-anchor="middle" font-size="12" fill="#DDE3E7">Send identical input to all three personas</text>
+    <path d="M500 378V402H180V430M500 402V430M500 402H820V430" fill="none" stroke="#59636E" stroke-width="2"/>
+    <path d="M180 410V430" stroke="#1F7A70" stroke-width="2" marker-end="url(#arrow)"/><path d="M500 410V430" stroke="#C34A36" stroke-width="2" marker-end="url(#arrow)"/><path d="M820 410V430" stroke="#B68B1E" stroke-width="2" marker-end="url(#arrow)"/>
+    <g filter="url(#shadow)"><rect x="40" y="430" width="280" height="180" rx="7" fill="#fff" stroke="#1F7A70" stroke-width="3"/><rect x="360" y="430" width="280" height="180" rx="7" fill="#fff" stroke="#C34A36" stroke-width="3"/><rect x="680" y="430" width="280" height="180" rx="7" fill="#fff" stroke="#B68B1E" stroke-width="3"/></g>
+    <image href="MELCHIOR.png" x="60" y="450" width="90" height="90"/><image href="BALTHASAR.png" x="380" y="450" width="90" height="90"/><image href="CASPER%20.png" x="700" y="450" width="90" height="90"/>
+    <text x="170" y="465" font-size="16" font-weight="700">MELCHIOR</text><text x="170" y="490" font-size="14">技術・論理</text><text x="170" y="514" font-size="11" fill="#59636E">Technical and logical</text>
+    <text x="490" y="465" font-size="16" font-weight="700">BALTHASAR</text><text x="490" y="490" font-size="14">安全・人間</text><text x="490" y="514" font-size="11" fill="#59636E">Safety and people</text>
+    <text x="810" y="465" font-size="16" font-weight="700">CASPER</text><text x="810" y="490" font-size="14">実現性・価値</text><text x="810" y="514" font-size="11" fill="#59636E">Pragmatism and value</text>
+    <rect x="70" y="560" width="220" height="32" rx="16" fill="#DDEEEB" stroke="#1F7A70"/><rect x="390" y="560" width="220" height="32" rx="16" fill="#F6E3DF" stroke="#C34A36"/><rect x="710" y="560" width="220" height="32" rx="16" fill="#F5EDCF" stroke="#B68B1E"/>
+    <text x="180" y="581" text-anchor="middle" font-size="13" fill="#145B53">独立評価 → 投票を封印</text><text x="500" y="581" text-anchor="middle" font-size="13" fill="#8F3021">独立評価 → 投票を封印</text><text x="820" y="581" text-anchor="middle" font-size="13" fill="#765910">独立評価 → 投票を封印</text>
+    <path d="M180 610V650H330V690M500 610V650H330M820 610V650H330" fill="none" stroke="#59636E" stroke-width="2"/><path d="M330 650V690" stroke="#111820" stroke-width="2" marker-end="url(#arrow)"/>
+    <g filter="url(#shadow)"><rect x="180" y="690" width="300" height="72" rx="7" fill="#F0F3F4" stroke="#111820" stroke-width="2"/><rect x="520" y="690" width="300" height="72" rx="7" fill="#111820"/></g>
+    <text x="330" y="719" text-anchor="middle" font-size="14" font-weight="700">4. magi CLIが3票を検証・採決</text><text x="330" y="743" text-anchor="middle" font-size="11" fill="#59636E">Verify sealed votes and tally deterministically</text>
+    <path d="M480 726H520" fill="none" stroke="#111820" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="670" y="719" text-anchor="middle" font-size="15" font-weight="700" fill="#fff">5. ユーザーへ回答</text><text x="670" y="743" text-anchor="middle" font-size="11" fill="#DDE3E7">Decision, conditions, risks, and dissent</text>
+  </g>
+</svg>
