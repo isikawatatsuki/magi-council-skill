@@ -4,6 +4,8 @@
 
 # MAGI Council Agent Skill
 
+[日本語](README.md) | [English](README.en.md)
+
 3つの独立したCustom Agentにそれぞれ判断させ、投票結果をもとに最終決定を行うAgent Skillテンプレートです。
 
 各Agentは、ほかのAgentの回答を見ない状態で投票します。
