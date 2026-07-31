@@ -10,6 +10,14 @@ Each agent votes without seeing the other agents' responses. Hooks temporarily s
 
 This is more than asking an AI to "think as three personas." It is designed for independence, reproducibility, and auditability.
 
+## From Question to Answer
+
+![MAGI Council sends identical input to three independently evaluating personas, seals their votes, and tallies an answer deterministically](docs/assets/magi-question-flow.svg)
+
+Every persona receives the same question and decision evidence. Persona state and conversation history are not shared or transferred. Each persona evaluates the input in an isolated context, then the `magi` CLI tallies the sealed votes.
+
+[draw.io source](docs/diagrams/magi-question-flow.drawio)
+
 ## Why This Skill Exists
 
 A normal chat can simulate multiple perspectives, but using several personas within one conversation has limitations as a decision-making process:
@@ -26,7 +34,7 @@ A normal chat can simulate multiple perspectives, but using several personas wit
 MAGI Council separates these concerns:
 
 * persona definitions
-* context shared identically with every persona
+* questions and decision evidence distributed identically to every persona
 * private persona votes
 * deterministic tallying
 * reusable long-term decision principles
@@ -137,7 +145,7 @@ Use src/auth and tests/auth as evidence.
 
 The Orchestrator performs the following workflow:
 
-1. Normalize the question and the context shared with every persona.
+1. Normalize the question and decision evidence, then distribute identical input to every persona.
 2. Create a run with `magi run create`.
 3. Launch `magi-melchior`, `magi-balthasar`, and `magi-casper` as separate Subagents.
 4. Validate and seal each response, returning only `VOTE_SEALED` to the parent agent.

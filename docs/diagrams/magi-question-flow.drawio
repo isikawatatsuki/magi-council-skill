@@ -1,0 +1,64 @@
+<mxfile host="app.diagrams.net" modified="2026-07-31T00:00:00.000Z" agent="GitHub Copilot" version="26.0.0">
+  <diagram id="magi-question-flow" name="Question to answer">
+    <mxGraphModel dx="1200" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1000" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="質問から回答まで / Question to answer" style="text;html=1;align=center;verticalAlign=middle;fontFamily=Noto Sans JP;fontSize=24;fontStyle=1;fontColor=#111820;" vertex="1" parent="1">
+          <mxGeometry x="250" y="25" width="500" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="question" value="&lt;b&gt;1. ユーザーが質問&lt;/b&gt;&lt;br&gt;User asks MAGI to decide" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#111820;strokeWidth=2;fontFamily=Noto Sans JP;fontSize=15;fontColor=#111820;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="330" y="80" width="340" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="normalize" value="&lt;b&gt;2. Orchestratorが質問と判断材料を整理&lt;/b&gt;&lt;br&gt;Normalize the question, evidence, constraints, and unknowns" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#F3F5F6;strokeColor=#59636E;strokeWidth=2;fontFamily=Noto Sans JP;fontSize=14;fontColor=#111820;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="280" y="180" width="440" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="distribute" value="&lt;b&gt;3. 全人格に同一の質問・判断材料を配布&lt;/b&gt;&lt;br&gt;Send identical input to all three personas" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#111820;strokeColor=#111820;strokeWidth=2;fontFamily=Noto Sans JP;fontSize=15;fontColor=#FFFFFF;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="250" y="310" width="500" height="68" as="geometry"/>
+        </mxCell>
+        <mxCell id="melchior-card" value="&lt;b&gt;MELCHIOR&lt;/b&gt;&lt;br&gt;技術・論理&lt;br&gt;&lt;font color=&quot;#59636E&quot;&gt;Technical and logical&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#1F7A70;strokeWidth=3;fontFamily=Noto Sans JP;fontSize=14;fontColor=#111820;align=left;spacingLeft=115;spacingTop=26;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="40" y="430" width="280" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="melchior-icon" value="" style="shape=image;html=1;aspect=fixed;image=../assets/persona-melchior.svg;" vertex="1" parent="1">
+          <mxGeometry x="60" y="450" width="90" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="melchior-seal" value="独立評価 → 投票を封印" style="rounded=1;whiteSpace=wrap;html=1;arcSize=20;fillColor=#DDEEEB;strokeColor=#1F7A70;fontFamily=Noto Sans JP;fontSize=13;fontColor=#145B53;" vertex="1" parent="1">
+          <mxGeometry x="70" y="560" width="220" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="balthasar-card" value="&lt;b&gt;BALTHASAR&lt;/b&gt;&lt;br&gt;安全・人間&lt;br&gt;&lt;font color=&quot;#59636E&quot;&gt;Safety and people&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#C34A36;strokeWidth=3;fontFamily=Noto Sans JP;fontSize=14;fontColor=#111820;align=left;spacingLeft=115;spacingTop=26;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="360" y="430" width="280" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="balthasar-icon" value="" style="shape=image;html=1;aspect=fixed;image=../assets/persona-balthasar.svg;" vertex="1" parent="1">
+          <mxGeometry x="380" y="450" width="90" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="balthasar-seal" value="独立評価 → 投票を封印" style="rounded=1;whiteSpace=wrap;html=1;arcSize=20;fillColor=#F6E3DF;strokeColor=#C34A36;fontFamily=Noto Sans JP;fontSize=13;fontColor=#8F3021;" vertex="1" parent="1">
+          <mxGeometry x="390" y="560" width="220" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="casper-card" value="&lt;b&gt;CASPER&lt;/b&gt;&lt;br&gt;実現性・価値&lt;br&gt;&lt;font color=&quot;#59636E&quot;&gt;Pragmatism and value&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#B68B1E;strokeWidth=3;fontFamily=Noto Sans JP;fontSize=14;fontColor=#111820;align=left;spacingLeft=115;spacingTop=26;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="680" y="430" width="280" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="casper-icon" value="" style="shape=image;html=1;aspect=fixed;image=../assets/persona-casper.svg;" vertex="1" parent="1">
+          <mxGeometry x="700" y="450" width="90" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="casper-seal" value="独立評価 → 投票を封印" style="rounded=1;whiteSpace=wrap;html=1;arcSize=20;fillColor=#F5EDCF;strokeColor=#B68B1E;fontFamily=Noto Sans JP;fontSize=13;fontColor=#765910;" vertex="1" parent="1">
+          <mxGeometry x="710" y="560" width="220" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="tally" value="&lt;b&gt;4. magi CLIが3票を検証・採決&lt;/b&gt;&lt;br&gt;Verify sealed votes and tally deterministically" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#F3F5F6;strokeColor=#111820;strokeWidth=2;fontFamily=Noto Sans JP;fontSize=14;fontColor=#111820;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="180" y="690" width="300" height="72" as="geometry"/>
+        </mxCell>
+        <mxCell id="answer" value="&lt;b&gt;5. ユーザーへ回答&lt;/b&gt;&lt;br&gt;Decision, conditions, risks, and dissent" style="rounded=1;whiteSpace=wrap;html=1;arcSize=10;fillColor=#111820;strokeColor=#111820;strokeWidth=2;fontFamily=Noto Sans JP;fontSize=14;fontColor=#FFFFFF;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="520" y="690" width="300" height="72" as="geometry"/>
+        </mxCell>
+        <mxCell id="edge-question-normalize" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#59636E;strokeWidth=2;" edge="1" parent="1" source="question" target="normalize"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="edge-normalize-distribute" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#59636E;strokeWidth=2;" edge="1" parent="1" source="normalize" target="distribute"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="edge-distribute-melchior" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#1F7A70;strokeWidth=2;" edge="1" parent="1" source="distribute" target="melchior-card"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="edge-distribute-balthasar" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#C34A36;strokeWidth=2;" edge="1" parent="1" source="distribute" target="balthasar-card"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="edge-distribute-casper" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#B68B1E;strokeWidth=2;" edge="1" parent="1" source="distribute" target="casper-card"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="edge-melchior-tally" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#1F7A70;strokeWidth=2;" edge="1" parent="1" source="melchior-card" target="tally"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="edge-balthasar-tally" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#C34A36;strokeWidth=2;" edge="1" parent="1" source="balthasar-card" target="tally"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="edge-casper-tally" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#B68B1E;strokeWidth=2;" edge="1" parent="1" source="casper-card" target="tally"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="edge-tally-answer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111820;strokeWidth=2;" edge="1" parent="1" source="tally" target="answer"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
