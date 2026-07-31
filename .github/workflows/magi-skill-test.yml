@@ -7,14 +7,20 @@ on:
       - '.github/agents/magi-*.agent.md'
       - '.github/hooks/magi-council.json'
       - '.magi/**'
-      - 'package.json'
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
   pull_request:
     paths:
       - '.agents/skills/magi-council/**'
       - '.github/agents/magi-*.agent.md'
       - '.github/hooks/magi-council.json'
       - '.magi/**'
-      - 'package.json'
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
 
 permissions:
   contents: read
@@ -24,7 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
         with:
-          node-version: 20
-      - run: npm run magi:test
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --locked
