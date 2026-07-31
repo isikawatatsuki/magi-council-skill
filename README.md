@@ -1,3 +1,5 @@
+<img width="1254" height="1254" alt="magi-council-skills" src="https://github.com/user-attachments/assets/212f16d7-8849-4a18-a469-05b22b377578" />
+
 # MAGI Council Agent Skill
 
 3つの独立したCustom Agentが、互いの判断を観測せずに投票し、Hookが回答を封印し、Node.jsスクリプトが決定論的に採決するAgent Skillテンプレートです。
