@@ -1,4 +1,5 @@
-![Uploading ChatGPT Image 2026年7月31日 10_10_49.png…]()
+<img width="1086" height="350" alt="ChatGPT Image 2026年7月31日 10_10_49" src="https://github.com/user-attachments/assets/28856785-59ae-48fc-b629-b69da7e66636" />
+
 
 
 # MAGI Council Agent Skill
