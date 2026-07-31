@@ -33,7 +33,7 @@ Default majority rules:
 
 When `criticalRiskVeto` is enabled, any validated critical risk changes the result to `rejected_by_veto`, unless every critical risk is explicitly marked mitigated in the same vote.
 
-The tally script—not a language model—implements these rules.
+The `magi` binary, not a language model, implements these rules.
 
 ## Confidence
 

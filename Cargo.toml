@@ -1,0 +1,26 @@
+[package]
+name = "magi-council-cli"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+description = "Deterministic sealed council CLI for MAGI Council"
+
+[[bin]]
+name = "magi"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+atomic-write-file = "0.3.0"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4.5", features = ["derive"] }
+rand = "0.9"
+regex = "1.11"
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_json_canonicalizer = "0.3.2"
+sha2 = "0.10"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+tempfile = "3.20"

@@ -23,7 +23,7 @@
 
 This is logical isolation inside one host account. It is not an operating-system sandbox.
 
-If an agent can execute unrestricted arbitrary code as the same OS user, it can potentially bypass path-based Hooks by constructing paths dynamically, reading process memory, disabling Hooks, or replacing scripts. The strict persona agents therefore have no tools. The Orchestrator retains execution ability only to invoke reviewed scripts.
+If an agent can execute unrestricted arbitrary code as the same OS user, it can potentially bypass path-based Hooks by constructing paths dynamically, reading process memory, disabling Hooks, or replacing the binary. The strict persona agents therefore have no tools. The Orchestrator retains execution ability only to invoke the reviewed `magi` binary.
 
 For hostile-agent or high-assurance deployments:
 
@@ -36,4 +36,4 @@ For hostile-agent or high-assurance deployments:
 
 ## Fail behavior
 
-GitHub command `preToolUse` hooks fail closed on crashes and non-zero exits, but hook timeouts fail open. Keep guard scripts local, dependency-free, and fast. Do not replace them with network calls.
+GitHub command `preToolUse` hooks fail closed on crashes and non-zero exits, but hook timeouts fail open. Keep the guard binary local, self-contained, and fast. Do not replace it with network calls.

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/skills/magi-council/scripts/guard-tool-use.mjs\"",
+            "command": "magi hook guard-tool-use",
             "timeout": 5
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/skills/magi-council/scripts/redact-tool-result.mjs\"",
+            "command": "magi hook redact-tool-result",
             "timeout": 5
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.agents/skills/magi-council/scripts/claude-subagent-stop-hook.mjs\"",
+            "command": "magi hook claude-subagent-stop",
             "timeout": 15
           }
         ]
