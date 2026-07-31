@@ -6,6 +6,7 @@ use rand::RngCore;
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use std::env;
+use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -21,7 +22,11 @@ pub fn now_iso() -> String {
 pub fn random_hex(bytes: usize) -> String {
     let mut value = vec![0_u8; bytes];
     rand::rng().fill_bytes(&mut value);
-    value.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut output = String::with_capacity(bytes * 2);
+    for byte in value {
+        write!(output, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    output
 }
 
 pub fn read_stdin() -> Result<String> {
@@ -43,10 +48,10 @@ pub fn extract_json_object(text: &str) -> Result<Value> {
     if let Some(captures) = fenced.captures(trimmed) {
         return parse_json(&captures[1], "fenced response");
     }
-    if let (Some(first), Some(last)) = (trimmed.find('{'), trimmed.rfind('}'))
-        && last > first
-    {
-        return parse_json(&trimmed[first..=last], "embedded response");
+    if let (Some(first), Some(last)) = (trimmed.find('{'), trimmed.rfind('}')) {
+        if last > first {
+            return parse_json(&trimmed[first..=last], "embedded response");
+        }
     }
     bail!("Response must contain one JSON object.")
 }
