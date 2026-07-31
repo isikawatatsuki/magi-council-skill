@@ -5,6 +5,18 @@ function flatten(value) {
   try { return JSON.stringify(value); } catch { return String(value); }
 }
 
+// Emitted on deny only. Claude Code reads `hookSpecificOutput`; a `permissionDecision`
+// of `allow` there would bypass its permission system, so the allow path stays inert and
+// carries the top-level field that GitHub Copilot expects.
+function deny(reason) {
+  console.log(JSON.stringify({
+    permissionDecision: 'deny',
+    permissionDecisionReason: reason,
+    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason }
+  }));
+  process.exit(0);
+}
+
 try {
   const raw = await readStdin();
   const payload = normalizeHookPayload(parseJson(raw || '{}', 'hook input'));
@@ -18,6 +30,9 @@ try {
   const protectedMutation = [
     /\.github\/hooks(?:\/|\b)/,
     /\.github\/agents\/magi-/,
+    /\.claude\/settings(?:\.local)?\.json/,
+    /\.claude\/agents\/magi-/,
+    /\.claude\/skills\/magi-council(?:\/|\b)/,
     /\.agents\/skills\/magi-council\/scripts(?:\/|\b)/,
     /\.magi\/constitution(?:\/|\b)/,
     /\.magi\/config\.json/,
@@ -27,19 +42,16 @@ try {
   const isReadLike = ['view','grep','glob','read'].includes(tool);
   const isMutation = ['create','edit','write','apply_patch','str_replace_editor'].includes(tool);
   if (isReadLike && protectedRead.some((pattern) => pattern.test(text))) {
-    console.log(JSON.stringify({ permissionDecision: 'deny', permissionDecisionReason: 'MAGI sealed votes, manifests, and persona-private memory are not model-readable.' }));
-    process.exit(0);
+    deny('MAGI sealed votes, manifests, and persona-private memory are not model-readable.');
   }
   if (isMutation && protectedMutation.some((pattern) => pattern.test(text))) {
-    console.log(JSON.stringify({ permissionDecision: 'deny', permissionDecisionReason: 'Protected MAGI state may be changed only by reviewed MAGI scripts and explicit human memory approval.' }));
-    process.exit(0);
+    deny('Protected MAGI state may be changed only by reviewed MAGI scripts and explicit human memory approval.');
   }
   if (['bash','powershell','execute'].includes(tool)) {
     const directSecretAccess = protectedRead.some((pattern) => pattern.test(text));
     const sourceMutation = protectedMutation.some((pattern) => pattern.test(text)) && /(rm|del|remove|write|set-content|out-file|sed\s+-i|perl\s+-i|node\s+-e|python\s+-c)/.test(text);
     if (directSecretAccess || sourceMutation) {
-      console.log(JSON.stringify({ permissionDecision: 'deny', permissionDecisionReason: 'Direct shell access to protected MAGI state or policy implementation is denied.' }));
-      process.exit(0);
+      deny('Direct shell access to protected MAGI state or policy implementation is denied.');
     }
   }
   console.log(JSON.stringify({ permissionDecision: 'allow' }));
