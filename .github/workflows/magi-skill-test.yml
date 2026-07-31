@@ -1,0 +1,30 @@
+name: MAGI skill tests
+
+on:
+  push:
+    paths:
+      - '.agents/skills/magi-council/**'
+      - '.github/agents/magi-*.agent.md'
+      - '.github/hooks/magi-council.json'
+      - '.magi/**'
+      - 'package.json'
+  pull_request:
+    paths:
+      - '.agents/skills/magi-council/**'
+      - '.github/agents/magi-*.agent.md'
+      - '.github/hooks/magi-council.json'
+      - '.magi/**'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm run magi:test

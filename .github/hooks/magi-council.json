@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "hooks": {
+    "subagentStart": [
+      {
+        "type": "command",
+        "matcher": "magi-(melchior|balthasar|casper)",
+        "bash": "node .agents/skills/magi-council/scripts/subagent-start-hook.mjs",
+        "powershell": "node .agents/skills/magi-council/scripts/subagent-start-hook.mjs",
+        "timeoutSec": 10
+      }
+    ],
+    "subagentStop": [
+      {
+        "type": "command",
+        "bash": "node .agents/skills/magi-council/scripts/subagent-stop-hook.mjs",
+        "powershell": "node .agents/skills/magi-council/scripts/subagent-stop-hook.mjs",
+        "timeoutSec": 15
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "matcher": "bash|powershell|view|create|edit|grep|glob",
+        "bash": "node .agents/skills/magi-council/scripts/guard-tool-use.mjs",
+        "powershell": "node .agents/skills/magi-council/scripts/guard-tool-use.mjs",
+        "timeoutSec": 5
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "matcher": "bash|powershell|view|grep|glob",
+        "bash": "node .agents/skills/magi-council/scripts/redact-tool-result.mjs",
+        "powershell": "node .agents/skills/magi-council/scripts/redact-tool-result.mjs",
+        "timeoutSec": 5
+      }
+    ]
+  }
+}

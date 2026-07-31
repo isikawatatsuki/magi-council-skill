@@ -1,0 +1,7 @@
+.magi/runs/
+.magi/tmp/
+.magi/locks/
+!.magi/runs/.gitkeep
+!.magi/tmp/.gitkeep
+!.magi/locks/.gitkeep
+node_modules/

@@ -1,0 +1,22 @@
+{
+  "question": "Should the proposed JWT authentication change be released to production?",
+  "context": {
+    "summary": "The change replaces server-side sessions with access and refresh tokens.",
+    "evidence": [
+      {
+        "path": "src/auth/token.ts",
+        "note": "Refresh-token rotation is not implemented."
+      },
+      {
+        "path": "tests/auth/token.test.ts",
+        "note": "Expiration is tested, revocation is not."
+      }
+    ],
+    "constraints": [
+      "The release date is fixed."
+    ],
+    "unknowns": [
+      "Peak refresh traffic has not been measured."
+    ]
+  }
+}

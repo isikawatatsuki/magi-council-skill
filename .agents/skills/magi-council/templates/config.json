@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0",
+  "voting": {
+    "method": "majority",
+    "criticalRiskVeto": true
+  },
+  "memory": {
+    "maxItemsPerPersona": 12
+  },
+  "security": {
+    "redactProtectedToolResults": true
+  }
+}
