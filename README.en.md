@@ -108,51 +108,113 @@ MAGI Council aims to ensure that:
 
 `sealed-subagents` is the default. Use `inline` only when Subagents or Hooks are unavailable, and disclose that execution was not independent. Both modes use the same deterministic `magi` binary.
 
-## Initialization
+## From Installation to First Decision
 
-Download the appropriate `magi` binary from GitHub Releases, or install it from source at the root of this repository:
+Follow these steps to install MAGI Council in an existing development repository and audit its first decision.
+
+### 1. Install the `magi` CLI
+
+Download the archive for your platform from [GitHub Releases](https://github.com/isikawatatsuki/magi-council-skill/releases), verify the included SHA-256 checksum, and place `magi` (`magi.exe` on Windows) on `PATH`. A prebuilt binary does not require Rust or Node.js at runtime.
+
+To install from source, run these commands at the root of this repository:
 
 ```bash
 cargo install --path . --locked
+cargo test --locked
 ```
 
-Copy the template directories into an existing repository, then initialize it from that repository's root:
+Verify the installation:
 
 ```bash
+magi version
+```
+
+### 2. Copy the template into the target repository
+
+First copy the Agent Skill used by every host. In this example, `SOURCE` is this template and `TARGET` is the repository where MAGI will run.
+
+```bash
+SOURCE=/path/to/magi-council-skill
+TARGET=/path/to/your-repository
+
+mkdir -p "$TARGET/.agents/skills"
+cp -R "$SOURCE/.agents/skills/magi-council" "$TARGET/.agents/skills/"
+```
+
+Copy the Custom Agents and Hooks for your host. Review and merge existing files instead of overwriting them without inspection.
+
+GitHub Copilot CLI / cloud agent:
+
+```bash
+mkdir -p "$TARGET/.github"
+cp -R "$SOURCE/.github/agents" "$TARGET/.github/"
+cp -R "$SOURCE/.github/hooks" "$TARGET/.github/"
+```
+
+Claude Code:
+
+```bash
+mkdir -p "$TARGET/.claude"
+cp -R "$SOURCE/.claude/agents" "$TARGET/.claude/"
+```
+
+GitHub Copilot VS Code Agent mode can use `.agents/skills/magi-council/`, but it falls back to `inline` mode when independent Subagents and Hooks are unavailable.
+
+### 3. Enable host Hooks
+
+GitHub Copilot uses the copied `.github/hooks/magi-council.json` file.
+
+For Claude Code, merge these settings into the target repository:
+
+* add the `hooks` object from `.claude/settings.json.authoring-off` to `.claude/settings.json`
+* add the `Bash(magi *)` permission from `.claude/settings.local.json` to the local permission settings
+
+Do not replace an existing settings file wholesale. The template keeps `settings.json.authoring-off` inactive intentionally so editing this repository does not invoke an uninstalled `magi` binary.
+
+### 4. Initialize project state
+
+After copying the Agent Skill, run the following command at the target repository root:
+
+```bash
+cd "$TARGET"
 magi init
 ```
 
-`magi init` creates the project configuration, Constitution, persona memory stores, and runtime directories without overwriting existing policy.
+`magi init` creates configuration, the Constitution, persona memory, `runs`, `tmp`, and `locks` under `.magi/`. It preserves existing configuration and policy, so it can be run again safely.
 
-When installing from source, run `cargo test --locked` in this repository to verify the implementation.
+### 5. Ask the Orchestrator for a decision
 
-Tagged releases publish archives for Linux x86_64, macOS x86_64 and Apple Silicon, and Windows x86_64. Put the extracted `magi` executable on `PATH`; neither a Rust toolchain nor Node.js is required at runtime.
-
-### Enabling Hooks in Claude Code
-
-In addition to the bundled Claude Custom Agents, copy the `hooks` object from `settings.json.authoring-off` into the active Claude Code project settings. If project settings already exist, merge the object instead of replacing the file. The template is intentionally inactive so editing this repository does not invoke an uninstalled `magi` binary automatically.
-
-The Hooks control access to protected state and verify vote receipts when a Subagent stops. GitHub Copilot can replace a tool result containing protected content. Claude Code cannot rewrite the result body in PostToolUse, so its PreToolUse guard is the primary enforcement layer.
-
-## Example
-
-Select the `magi-orchestrator` Custom Agent and ask:
+Select `magi-orchestrator` from the host's Custom Agent list and provide the decision question and relevant evidence locations.
 
 ```text
 Should this authentication design be released to production?
 Use src/auth and tests/auth as evidence.
 ```
 
-The Orchestrator performs the following workflow:
+The Orchestrator normalizes the question and evidence, then distributes identical input to all three personas. Hooks seal each vote, and after all three votes exist, `magi run tally` calculates the final result. A host without Subagents or Hooks uses disclosed `inline` mode, which does not guarantee independent execution.
 
-1. Normalize the question and decision evidence, then distribute identical input to every persona.
-2. Create a run with `magi run create`.
-3. Launch `magi-melchior`, `magi-balthasar`, and `magi-casper` as separate Subagents.
-4. Validate and seal each response, returning only `VOTE_SEALED` to the parent agent.
-5. After all three votes exist, run `magi run tally`.
-6. Present `decision.json` and `decision.md` to the human.
+### 6. Review and audit the result
 
-The parent agent never reads vote bodies while voting is in progress. It handles only the generated decision after tallying.
+Review the final decision, conditions, critical risks, dissent, and confidence range presented by the Orchestrator. The generated artifacts are stored in `.magi/runs/<runId>/decision.json` and `decision.md`.
+
+Use the CLI to inspect collection status or verify integrity when needed:
+
+```bash
+magi run status <runId>
+magi run audit <runId>
+```
+
+A successful audit returns `valid: true`. Missing artifacts or hash mismatches produce exit code 1; do not present that result as a valid decision.
+
+### 7. Optionally preserve a decision principle
+
+If `decision.json` contains a useful `memoryCandidates` entry, a human may review its content and scope before explicitly approving it:
+
+```bash
+magi memory approve <runId> <candidateId> --approved-by "<approver>"
+```
+
+Candidates are never stored automatically. An approved principle is added only to the proposing persona's memory and becomes available to that persona in later runs.
 
 ## Invariants
 
