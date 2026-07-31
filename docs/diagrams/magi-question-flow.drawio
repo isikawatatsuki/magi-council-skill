@@ -19,7 +19,7 @@
         <mxCell id="melchior-card" value="&lt;b&gt;MELCHIOR&lt;/b&gt;&lt;br&gt;技術・論理&lt;br&gt;&lt;font color=&quot;#59636E&quot;&gt;Technical and logical&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#1F7A70;strokeWidth=3;fontFamily=Noto Sans JP;fontSize=14;fontColor=#111820;align=left;spacingLeft=115;spacingTop=26;verticalAlign=top;" vertex="1" parent="1">
           <mxGeometry x="40" y="430" width="280" height="180" as="geometry"/>
         </mxCell>
-        <mxCell id="melchior-icon" value="" style="shape=image;html=1;aspect=fixed;image=../assets/persona-melchior.svg;" vertex="1" parent="1">
+        <mxCell id="melchior-icon" value="" style="shape=image;html=1;aspect=fixed;image=../assets/MELCHIOR.png;" vertex="1" parent="1">
           <mxGeometry x="60" y="450" width="90" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="melchior-seal" value="独立評価 → 投票を封印" style="rounded=1;whiteSpace=wrap;html=1;arcSize=20;fillColor=#DDEEEB;strokeColor=#1F7A70;fontFamily=Noto Sans JP;fontSize=13;fontColor=#145B53;" vertex="1" parent="1">
@@ -28,7 +28,7 @@
         <mxCell id="balthasar-card" value="&lt;b&gt;BALTHASAR&lt;/b&gt;&lt;br&gt;安全・人間&lt;br&gt;&lt;font color=&quot;#59636E&quot;&gt;Safety and people&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#C34A36;strokeWidth=3;fontFamily=Noto Sans JP;fontSize=14;fontColor=#111820;align=left;spacingLeft=115;spacingTop=26;verticalAlign=top;" vertex="1" parent="1">
           <mxGeometry x="360" y="430" width="280" height="180" as="geometry"/>
         </mxCell>
-        <mxCell id="balthasar-icon" value="" style="shape=image;html=1;aspect=fixed;image=../assets/persona-balthasar.svg;" vertex="1" parent="1">
+        <mxCell id="balthasar-icon" value="" style="shape=image;html=1;aspect=fixed;image=../assets/BALTHASAR.png;" vertex="1" parent="1">
           <mxGeometry x="380" y="450" width="90" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="balthasar-seal" value="独立評価 → 投票を封印" style="rounded=1;whiteSpace=wrap;html=1;arcSize=20;fillColor=#F6E3DF;strokeColor=#C34A36;fontFamily=Noto Sans JP;fontSize=13;fontColor=#8F3021;" vertex="1" parent="1">
@@ -37,7 +37,7 @@
         <mxCell id="casper-card" value="&lt;b&gt;CASPER&lt;/b&gt;&lt;br&gt;実現性・価値&lt;br&gt;&lt;font color=&quot;#59636E&quot;&gt;Pragmatism and value&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#B68B1E;strokeWidth=3;fontFamily=Noto Sans JP;fontSize=14;fontColor=#111820;align=left;spacingLeft=115;spacingTop=26;verticalAlign=top;" vertex="1" parent="1">
           <mxGeometry x="680" y="430" width="280" height="180" as="geometry"/>
         </mxCell>
-        <mxCell id="casper-icon" value="" style="shape=image;html=1;aspect=fixed;image=../assets/persona-casper.svg;" vertex="1" parent="1">
+        <mxCell id="casper-icon" value="" style="shape=image;html=1;aspect=fixed;image=../assets/CASPER%20.png;" vertex="1" parent="1">
           <mxGeometry x="700" y="450" width="90" height="90" as="geometry"/>
         </mxCell>
         <mxCell id="casper-seal" value="独立評価 → 投票を封印" style="rounded=1;whiteSpace=wrap;html=1;arcSize=20;fillColor=#F5EDCF;strokeColor=#B68B1E;fontFamily=Noto Sans JP;fontSize=13;fontColor=#765910;" vertex="1" parent="1">
