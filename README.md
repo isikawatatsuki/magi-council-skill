@@ -116,51 +116,113 @@ MAGI Councilでは、以下を別々の要素として管理します。
 
 `sealed-subagents`が既定です。SubagentまたはHooksを利用できない場合だけ`inline`を指定し、独立実行ではないことを明示します。どちらのモードでも、最終結果は同じ`magi`バイナリが計算します。
 
-## 初期化
+## 導入から使用まで
 
-GitHub Releasesから環境に合う`magi`を取得するか、このリポジトリのルートでソースからインストールします。
+以下は、既存の開発リポジトリへMAGI Councilを導入し、最初の採決を監査するまでの手順です。
+
+### 1. `magi` CLIをインストールする
+
+[GitHub Releases](https://github.com/isikawatatsuki/magi-council-skill/releases)から環境に合うアーカイブを取得し、同梱のSHA-256チェックサムを検証してから、`magi`（Windowsでは`magi.exe`）を`PATH`上へ配置します。配布バイナリの実行にRustやNode.jsは不要です。
+
+ソースからインストールする場合は、このリポジトリのルートで実行します。
 
 ```bash
 cargo install --path . --locked
+cargo test --locked
 ```
 
-既存リポジトリへテンプレート内のディレクトリをコピーし、そのリポジトリのルートで初期化します。
+インストール後、CLIを確認します。
 
 ```bash
+magi version
+```
+
+### 2. 対象リポジトリへテンプレートを配置する
+
+まず、全ホストで共通して使うAgent Skillをコピーします。次の例では`SOURCE`がこのテンプレート、`TARGET`がMAGIを導入するリポジトリです。
+
+```bash
+SOURCE=/path/to/magi-council-skill
+TARGET=/path/to/your-repository
+
+mkdir -p "$TARGET/.agents/skills"
+cp -R "$SOURCE/.agents/skills/magi-council" "$TARGET/.agents/skills/"
+```
+
+使用するホストに応じてCustom AgentとHookもコピーします。既存ファイルがある場合は、そのまま上書きせず内容を確認してマージしてください。
+
+GitHub Copilot CLI / cloud agent:
+
+```bash
+mkdir -p "$TARGET/.github"
+cp -R "$SOURCE/.github/agents" "$TARGET/.github/"
+cp -R "$SOURCE/.github/hooks" "$TARGET/.github/"
+```
+
+Claude Code:
+
+```bash
+mkdir -p "$TARGET/.claude"
+cp -R "$SOURCE/.claude/agents" "$TARGET/.claude/"
+```
+
+GitHub Copilot VS Code Agent modeでは`.agents/skills/magi-council/`を使用できますが、SubagentとHookによる独立実行が利用できない場合は`inline`モードになります。
+
+### 3. ホストのHookを有効にする
+
+GitHub Copilotでは、コピーした`.github/hooks/magi-council.json`を使用します。
+
+Claude Codeでは、次の設定を既存設定へマージします。
+
+* `.claude/settings.json.authoring-off`の`hooks`を、対象リポジトリの`.claude/settings.json`へ追加する
+* `.claude/settings.local.json`の`Bash(magi *)`権限を、対象リポジトリのローカル権限設定へ追加する
+
+設定ファイル全体を上書きしないでください。`settings.json.authoring-off`は、このテンプレートの編集中に未インストールの`magi`が自動実行されないよう、意図的に無効な名前で保存されています。
+
+### 4. プロジェクト状態を初期化する
+
+Agent Skillを配置した後、対象リポジトリのルートで実行します。
+
+```bash
+cd "$TARGET"
 magi init
 ```
 
-`magi init`は、プロジェクト状態ディレクトリ内に設定、Constitution、人格別メモリ、実行用ディレクトリを作成します。既存の設定やポリシーは上書きしません。
+`magi init`は`.magi/`へ設定、Constitution、人格別メモリ、`runs`、`tmp`、`locks`を作成します。既存の設定とポリシーは上書きしないため、再実行できます。
 
-ソースから導入する場合は、このリポジトリで`cargo test --locked`を実行して検証できます。
+### 5. Orchestratorへ採決を依頼する
 
-タグ付きリリースでは、Linux x86_64、macOS x86_64 / Apple Silicon、Windows x86_64向けのアーカイブをGitHub Releasesへ公開します。対応するアーカイブから`magi`を取り出して`PATH`上へ配置すれば、Rust toolchainやNode.jsは不要です。
-
-### Claude CodeでHooksを有効にする
-
-Claude Codeでは、`.claude/`内のCustom Agentに加えて、`settings.json.authoring-off`の`hooks`設定を有効な`settings.json`へ反映してください。既存の設定ファイルがある場合は上書きせず、`hooks`をマージします。このテンプレートは、リポジトリを編集している最中に未インストールの`magi`を自動実行しないよう、意図的に非アクティブな名前で管理しています。
-
-Hookは、保護対象へのアクセス制御とSubagent終了時のreceipt検証を担当します。GitHub Copilotでは保護対象を含むツール結果を置換できますが、Claude CodeではPostToolUseで結果本文を書き換えられないため、PreToolUseの事前ガードが主な防御です。
-
-## 利用例
-
-Custom Agentから`magi-orchestrator`を選択し、次のように依頼します。
+ホストのCustom Agent一覧から`magi-orchestrator`を選択し、判断してほしい質問と根拠の場所を伝えます。
 
 ```text
 この認証方式を本番採用すべきか、MAGIで採決してください。
 根拠として src/auth と tests/auth を確認してください。
 ```
 
-Orchestratorは、次の流れで処理します。
+Orchestratorは質問と判断材料を整理し、同じ入力を3人格へ配布します。各人格の投票はHookで封印され、3票が揃うと`magi run tally`が最終結果を計算します。SubagentまたはHookを利用できないホストでは、独立実行ではないことを明示した`inline`モードを使用します。
 
-1. 質問と判断材料を整理し、全人格へ同一内容で配布する
-2. `magi run create`で実行用のランを作成する
-3. `magi-melchior`、`magi-balthasar`、`magi-casper`を独立したSubagentとして起動する
-4. `subagentStop` Hookが各回答を検証して封印し、親Agentには`VOTE_SEALED`だけを返す
-5. 3票が揃った後、`magi run tally`で採決する
-6. `decision.json`と`decision.md`を人間へ提示する
+### 6. 結果を確認・監査する
 
-親Agentは、投票途中の回答内容を確認せず、採決後に生成された結果だけを扱います。
+Orchestratorが提示する最終判定、条件、重大リスク、少数意見、確信度範囲を確認します。生成物は`.magi/runs/<runId>/decision.json`と`decision.md`に保存されます。
+
+必要に応じて収集状態と完全性をCLIで確認できます。
+
+```bash
+magi run status <runId>
+magi run audit <runId>
+```
+
+監査に成功すると`valid: true`が返ります。欠落やハッシュ不一致がある場合は終了コード1となり、その結果を有効な採決として扱ってはいけません。
+
+### 7. 判断原則を任意で保存する
+
+`decision.json`に今後も利用したい`memoryCandidates`がある場合だけ、人間が内容と適用範囲を確認して承認します。
+
+```bash
+magi memory approve <runId> <candidateId> --approved-by "<承認者>"
+```
+
+候補は自動保存されません。承認済み原則は提案した人格だけのメモリへ追加され、次回以降の採決で利用されます。
 
 ## 設計上の不変条件
 
