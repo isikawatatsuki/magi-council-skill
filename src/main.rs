@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use clap::{Args, Parser, Subcommand};
+use magi_council_cli::adversarial::{context_for, prepare, seal_challenges, seal_round_vote};
 use magi_council_cli::commands::{approve_memory, init_project, load_persona, seal_vote_input};
 use magi_council_cli::core::{extract_json_object, find_repo_root, parse_json, read_stdin};
 use magi_council_cli::hooks::{
@@ -44,6 +45,11 @@ enum Command {
         #[command(subcommand)]
         command: VoteCommand,
     },
+    /// Validate and seal THOMAS adversarial challenges.
+    Thomas {
+        #[command(subcommand)]
+        command: ThomasCommand,
+    },
     /// Execute an editor or agent host hook using JSON stdin/stdout.
     Hook {
         #[command(subcommand)]
@@ -63,6 +69,10 @@ enum RunCommand {
     Tally { run_id: String },
     /// Audit run integrity.
     Audit { run_id: String },
+    /// Prepare randomized anonymous input for THOMAS.
+    PrepareAdversarial { run_id: String },
+    /// Produce phase-scoped context for THOMAS or one final voter.
+    Context { run_id: String, agent: String },
 }
 
 #[derive(Debug, Args)]
@@ -95,7 +105,14 @@ enum VoteCommand {
     Seal {
         #[arg(long)]
         persona: Option<String>,
+        #[arg(long)]
+        round: Option<String>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum ThomasCommand {
+    Seal,
 }
 
 #[derive(Debug, Subcommand)]
@@ -133,6 +150,10 @@ fn execute() -> Result<bool> {
                 }
                 RunCommand::Tally { run_id } => tally_votes(&root, &run_id)?,
                 RunCommand::Audit { run_id } => audit_run(&root, &run_id)?,
+                RunCommand::PrepareAdversarial { run_id } => prepare(&root, &run_id)?,
+                RunCommand::Context { run_id, agent } => {
+                    json!({"additionalContext": context_for(&root, &run_id, &agent)?})
+                }
             };
             let valid = output.get("valid").and_then(Value::as_bool) != Some(false);
             println!("{}", serde_json::to_string(&output)?);
@@ -167,14 +188,34 @@ fn execute() -> Result<bool> {
         Command::Vote { command } => {
             let root = find_repo_root(None)?;
             let output = match command {
-                VoteCommand::Seal { persona } => {
+                VoteCommand::Seal { persona, round } => {
                     let raw = read_stdin()?;
                     if raw.is_empty() {
                         return Err(anyhow!("Vote JSON is required on stdin."));
                     }
                     let vote = extract_json_object(&raw)?;
                     let agent_id = std::env::var("CLAUDE_AGENT_ID").ok();
-                    seal_vote_input(&root, persona.as_deref(), &vote, agent_id.as_deref())?
+                    if let Some(round) = round {
+                        let persona = persona
+                            .as_deref()
+                            .or_else(|| vote.get("persona").and_then(Value::as_str))
+                            .ok_or_else(|| anyhow!("--persona is required."))?;
+                        seal_round_vote(&root, persona, &round, &vote, agent_id.as_deref())?
+                    } else {
+                        seal_vote_input(&root, persona.as_deref(), &vote, agent_id.as_deref())?
+                    }
+                }
+            };
+            println!("{}", serde_json::to_string(&output)?);
+            Ok(true)
+        }
+        Command::Thomas { command } => {
+            let root = find_repo_root(None)?;
+            let output = match command {
+                ThomasCommand::Seal => {
+                    let value = extract_json_object(&read_stdin()?)?;
+                    let agent_id = std::env::var("CLAUDE_AGENT_ID").ok();
+                    seal_challenges(&root, &value, agent_id.as_deref())?
                 }
             };
             println!("{}", serde_json::to_string(&output)?);

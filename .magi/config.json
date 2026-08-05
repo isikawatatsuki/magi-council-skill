@@ -9,5 +9,13 @@
   },
   "security": {
     "redactProtectedToolResults": true
+  },
+  "adversarialReview": {
+    "mode": "disabled",
+    "anonymizePersonas": true,
+    "maxChallengesPerCandidate": 5,
+    "minimumSeverity": "medium",
+    "requireFalsificationTest": true,
+    "unresolvedCriticalAction": "human_review"
   }
 }

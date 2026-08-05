@@ -15,6 +15,19 @@ use std::time::{Duration, Instant};
 
 pub const PERSONAS: [&str; 3] = ["melchior", "balthasar", "casper"];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Agent {
+    Persona(&'static str),
+    Thomas,
+}
+
+pub fn agent_for_name(agent_name: Option<&str>) -> Option<Agent> {
+    if agent_name == Some("magi-thomas") {
+        return Some(Agent::Thomas);
+    }
+    persona_for_agent(agent_name).map(Agent::Persona)
+}
+
 pub fn now_iso() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
@@ -228,7 +241,19 @@ pub fn validate_request(request: &Value) -> Result<()> {
     ensure!(
         matches!(
             status,
-            Some("collecting" | "ready" | "finalized" | "invalid")
+            Some(
+                "collecting"
+                    | "ready"
+                    | "collecting_initial"
+                    | "initial_ready"
+                    | "challenging"
+                    | "challenge_ready"
+                    | "collecting_final"
+                    | "final_ready"
+                    | "finalized"
+                    | "suspended_for_human_review"
+                    | "invalid"
+            )
         ),
         "request.status is invalid."
     );
@@ -264,6 +289,7 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         "risks",
         "assumptions",
         "memoryCandidates",
+        "challengeResponses",
     ];
     for key in vote_object.keys() {
         ensure!(
@@ -420,6 +446,49 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
             1,
             2_000,
         )?;
+    }
+    if let Some(responses) = vote_object.get("challengeResponses") {
+        let responses = responses
+            .as_array()
+            .ok_or_else(|| anyhow!("vote.challengeResponses must be an array."))?;
+        ensure!(
+            responses.len() <= 30,
+            "vote.challengeResponses has too many entries."
+        );
+        for (index, response) in responses.iter().enumerate() {
+            let name = format!("challengeResponses[{index}]");
+            let response_object = object(response, &name)?;
+            string(
+                required(response, "challengeId", &name)?,
+                &format!("{name}.challengeId"),
+                1,
+                100,
+            )?;
+            ensure!(
+                matches!(
+                    required(response, "response", &name)?.as_str(),
+                    Some("uphold" | "revise" | "reverse" | "abstain")
+                ),
+                "{name}.response is invalid."
+            );
+            if let Some(rebuttal) = response_object.get("rebuttal").filter(|v| !v.is_null()) {
+                string(rebuttal, &format!("{name}.rebuttal"), 1, 2_000)?;
+            }
+            string_array(
+                required(response, "acceptedConditions", &name)?,
+                &format!("{name}.acceptedConditions"),
+                0,
+                12,
+                1_000,
+            )?;
+            string_array(
+                required(response, "evidence", &name)?,
+                &format!("{name}.evidence"),
+                0,
+                12,
+                1_000,
+            )?;
+        }
     }
     Ok(())
 }
@@ -699,6 +768,12 @@ mod tests {
     #[test]
     fn rejects_persona_mismatch() {
         assert!(validate_vote(&sample_vote(), Some("casper")).is_err());
+    }
+
+    #[test]
+    fn identifies_thomas_without_granting_a_persona_vote() {
+        assert_eq!(agent_for_name(Some("magi-thomas")), Some(Agent::Thomas));
+        assert_eq!(persona_for_agent(Some("magi-thomas")), None);
     }
 
     #[test]

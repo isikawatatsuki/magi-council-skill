@@ -413,6 +413,14 @@ All three personas receive the same question, evidence, constraints, and unknown
 
 The project is inspired by the original framing but does not attempt to reproduce the fictional personalities. It reworks them into three decision dimensions: technology, safety, and practical reality.
 
+## Adversarial Review (THOMAS)
+
+Set `adversarialReview.mode` in `.magi/config.json` to `enabled` to add THOMAS, a sealed non-voting adversarial verifier. THOMAS receives randomized anonymous initial decisions and challenges their assumptions, logic, evidence, boundaries, security, reliability, integrity, rollback, and human impact. THOMAS is not a fourth vote and never participates in the tally.
+
+The flow is: three initial votes, `magi run prepare-adversarial <runId>`, sealed THOMAS challenges, three final votes, and `magi run tally <runId>`. Initial votes, the anonymous mapping, challenges, and final votes are sealed separately; only final votes determine the result. A concrete unresolved Critical challenge suspends the run for human review instead of automatically rejecting it.
+
+This mode adds model calls and latency. The CLI rejects adversarial review in `inline` mode because strict independence cannot be guaranteed. Artifacts live under `rounds/initial/sealed`, `adversarial`, and `rounds/final/sealed`; `magi run audit` verifies every recorded hash. Disabled mode preserves the legacy `collecting → ready → finalized` flow and old run compatibility.
+
 ## Security Notes
 
 This template reduces accidental cross-persona access caused by ordinary agent operations or prompt injection. Agent Skills and Hooks are not operating-system isolation, however.
