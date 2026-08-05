@@ -626,11 +626,12 @@ pub fn tally_votes(root: &Path, run_id: &str) -> Result<Value> {
         0o600,
     )?;
     request["status"] = Value::String(
-        result
-            .eq("suspended_for_human_review")
-            .then_some("suspended_for_human_review")
-            .unwrap_or("finalized")
-            .to_owned(),
+        if result == "suspended_for_human_review" {
+            "suspended_for_human_review"
+        } else {
+            "finalized"
+        }
+        .to_owned(),
     );
     atomic_write_json(&request_file, &request, 0o600)?;
     manifest["finalized"] = Value::Bool(true);
