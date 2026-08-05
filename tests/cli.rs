@@ -310,3 +310,61 @@ fn init_creates_defaults_without_overwriting_policy() {
         "custom-policy"
     );
 }
+
+#[test]
+fn adversarial_review_seals_two_rounds_and_tallies_only_final_votes() {
+    let project = project();
+    let created = output_json(
+        magi(project.path())
+            .args(["run", "create", "--stdin"])
+            .write_stdin(r#"{"question":"Release?","context":{},"adversarialReview":true}"#),
+    );
+    let run_id = created["runId"].as_str().unwrap();
+    for persona in ["melchior", "balthasar", "casper"] {
+        output_json(
+            magi(project.path())
+                .args(["vote", "seal", "--persona", persona, "--round", "initial"])
+                .write_stdin(vote(run_id, persona, "reject", json!([])).to_string()),
+        );
+    }
+    let prepared = output_json(magi(project.path()).args(["run", "prepare-adversarial", run_id]));
+    assert_eq!(prepared["candidates"].as_array().unwrap().len(), 3);
+    let challenges = json!({
+        "schemaVersion": "1.0", "runId": run_id,
+        "challenges": [{
+            "id": "challenge-001", "targetCandidate": "candidate-a", "category": "security",
+            "severity": "critical", "claimUnderChallenge": "Safe release", "counterArgument": "Rollback is unproven",
+            "falsificationTest": {"description": "Exercise rollback", "expectedEvidence": ["test log"]}, "status": "unresolved"
+        }]
+    });
+    output_json(
+        magi(project.path())
+            .args(["thomas", "seal"])
+            .write_stdin(challenges.to_string()),
+    );
+    output_json(magi(project.path()).args(["run", "context", run_id, "melchior"]));
+    for persona in ["melchior", "balthasar", "casper"] {
+        let mut final_vote = vote(run_id, persona, "approve", json!([]));
+        final_vote["challengeResponses"] = json!([{
+            "challengeId": "challenge-001", "response": "uphold", "rebuttal": "Rollback was tested",
+            "acceptedConditions": [], "evidence": ["test log"]
+        }]);
+        output_json(
+            magi(project.path())
+                .args(["vote", "seal", "--persona", persona, "--round", "final"])
+                .write_stdin(final_vote.to_string()),
+        );
+    }
+    let decision = output_json(magi(project.path()).args(["run", "tally", run_id]));
+    assert_eq!(decision["decision"], "approved");
+    assert_eq!(decision["voteCounts"]["approve"], 3);
+    assert_eq!(
+        decision["adversarialReview"]["changes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    let audit = output_json(magi(project.path()).args(["run", "audit", run_id]));
+    assert_eq!(audit["valid"], true);
+}

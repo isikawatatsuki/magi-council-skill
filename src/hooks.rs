@@ -1,7 +1,8 @@
+use crate::adversarial::{context_for, seal_challenges, seal_round_vote, validate_challenges};
 use crate::core::{
-    PERSONAS, build_persona_context, extract_json_object, find_repo_root, normalize_hook_payload,
-    persona_for_agent, read_json, read_last_assistant_message, run_dir_for, seal_vote,
-    validate_vote,
+    Agent, PERSONAS, agent_for_name, build_persona_context, extract_json_object, find_repo_root,
+    normalize_hook_payload, persona_for_agent, read_json, read_last_assistant_message, run_dir_for,
+    seal_vote, validate_vote,
 };
 use anyhow::{Result, anyhow};
 use regex::Regex;
@@ -20,15 +21,62 @@ fn blocked(reason: impl Into<String>) -> Value {
 
 pub fn subagent_start(input: &Value) -> Result<Value> {
     let payload = normalize_hook_payload(input)?;
-    let Some(persona) = persona_for_agent(payload.agent_name.as_deref()) else {
+    let Some(agent) = agent_for_name(payload.agent_name.as_deref()) else {
         return Ok(json!({}));
     };
     let root = find_repo_root(Some(&payload.cwd))?;
-    Ok(json!({"additionalContext": build_persona_context(&root, persona)?}))
+    let run_id = input
+        .get("runId")
+        .or_else(|| input.get("run_id"))
+        .and_then(Value::as_str);
+    let context = match (agent, run_id) {
+        (Agent::Thomas, Some(run_id)) => context_for(&root, run_id, "thomas")?,
+        (Agent::Persona(persona), Some(run_id)) => {
+            let request = read_json(&run_dir_for(&root, run_id)?.join("request.json"))?;
+            if matches!(
+                request.get("status").and_then(Value::as_str),
+                Some("challenge_ready" | "collecting_final")
+            ) {
+                format!(
+                    "{}\n\n# Adversarial review\n{}",
+                    build_persona_context(&root, persona)?,
+                    context_for(&root, run_id, persona)?
+                )
+            } else {
+                build_persona_context(&root, persona)?
+            }
+        }
+        (Agent::Persona(persona), None) => build_persona_context(&root, persona)?,
+        (Agent::Thomas, None) => {
+            return Ok(blocked(
+                "THOMAS requires runId in the subagentStart payload.",
+            ));
+        }
+    };
+    Ok(json!({"additionalContext": context}))
 }
 
 pub fn subagent_stop(input: &Value) -> Result<Value> {
     let payload = normalize_hook_payload(input)?;
+    if payload.agent_name.as_deref() == Some("magi-thomas") {
+        let response = payload.response.as_deref().unwrap_or_default();
+        let value = match extract_json_object(response) {
+            Ok(v) => v,
+            Err(e) => return Ok(blocked(format!("THOMAS challenge JSON was rejected: {e}"))),
+        };
+        let run_id = value
+            .get("runId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if let Err(e) = validate_challenges(&value, run_id, true) {
+            return Ok(blocked(format!("THOMAS challenge JSON was rejected: {e}")));
+        }
+        let root = find_repo_root(Some(&payload.cwd))?;
+        return match seal_challenges(&root, &value, payload.agent_id.as_deref()) {
+            Ok(sealed) => Ok(json!({"decision": "allow", "modifiedResponse": sealed["receipt"]})),
+            Err(e) => Ok(blocked(format!("MAGI challenge sealing failed: {e}"))),
+        };
+    }
     let Some(persona) = persona_for_agent(payload.agent_name.as_deref()) else {
         return Ok(json!({}));
     };
@@ -45,8 +93,29 @@ pub fn subagent_stop(input: &Value) -> Result<Value> {
         }
     };
     let root = find_repo_root(Some(&payload.cwd))?;
-    match seal_vote(&root, persona, &vote, payload.agent_id.as_deref()) {
-        Ok(sealed) => Ok(json!({"decision": "allow", "modifiedResponse": sealed.receipt})),
+    let request = read_json(
+        &run_dir_for(&root, vote["runId"].as_str().unwrap_or_default())?.join("request.json"),
+    )?;
+    let status = request
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let sealed = if matches!(status, "collecting_initial" | "initial_ready") {
+        seal_round_vote(
+            &root,
+            persona,
+            "initial",
+            &vote,
+            payload.agent_id.as_deref(),
+        )
+    } else if matches!(status, "collecting_final" | "final_ready") {
+        seal_round_vote(&root, persona, "final", &vote, payload.agent_id.as_deref())
+    } else {
+        seal_vote(&root, persona, &vote, payload.agent_id.as_deref())
+            .map(|s| json!({"receipt": s.receipt}))
+    };
+    match sealed {
+        Ok(sealed) => Ok(json!({"decision": "allow", "modifiedResponse": sealed["receipt"]})),
         Err(error) => Ok(blocked(format!(
             "MAGI sealing failed: {error}. Do not change the question or persona; return a valid vote JSON again."
         ))),
@@ -143,6 +212,12 @@ fn protected_patterns() -> Result<(Vec<Regex>, Vec<Regex>)> {
     let state = format!(r"{dot}magi");
     let protected_read = vec![
         Regex::new(&format!(r"{state}/runs/[^/]+/sealed(?:/|\b)"))?,
+        Regex::new(&format!(
+            r"{state}/runs/[^/]+/rounds/(?:initial|final)/sealed(?:/|\b)"
+        ))?,
+        Regex::new(&format!(
+            r"{state}/runs/[^/]+/adversarial/(?:mapping|challenges)\.json"
+        ))?,
         Regex::new(&format!(r"{state}/runs/[^/]+/manifest\.json"))?,
         Regex::new(&format!(r"{state}/memory/personas(?:/|\b)"))?,
     ];
@@ -157,7 +232,7 @@ fn protected_patterns() -> Result<(Vec<Regex>, Vec<Regex>)> {
         Regex::new(&format!(r"{state}/config\.json"))?,
         Regex::new(&format!(r"{state}/memory(?:/|\b)"))?,
         Regex::new(&format!(
-            r"{state}/runs/[^/]+/(?:sealed|manifest\.json|decision\.json|decision\.md)"
+            r"{state}/runs/[^/]+/(?:sealed|rounds|adversarial|manifest\.json|decision\.json|decision\.md)"
         ))?,
     ];
     Ok((protected_read, protected_mutation))
@@ -228,7 +303,7 @@ pub fn redact_tool_result(input: &Value) -> Result<Value> {
         .unwrap_or_else(|| flatten(&payload.tool_result));
     let state = format!(r"{}magi", r"\.");
     let sensitive = Regex::new(&format!(
-        r#"(?i){state}/runs/[^\s"']+/(?:sealed|manifest\.json)|{state}/memory/personas"#
+        r#"(?i){state}/runs/[^\s"']+/(?:sealed|rounds/(?:initial|final)/sealed|adversarial/(?:mapping|challenges)\.json|manifest\.json)|{state}/memory/personas"#
     ))?;
     if !sensitive.is_match(&result.replace('\\', "/")) {
         return Ok(json!({}));

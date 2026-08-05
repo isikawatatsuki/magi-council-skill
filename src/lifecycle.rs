@@ -1,3 +1,4 @@
+use crate::adversarial;
 use crate::core::{
     PERSONAS, RunLock, atomic_write_json, atomic_write_text, now_iso, random_hex, read_json,
     run_dir_for, state_dir, validate_request, validate_vote, verify_request_hash,
@@ -38,11 +39,28 @@ pub fn create_run(root: &Path, input: &Value) -> Result<Value> {
     } else {
         "sealed-subagents"
     };
+    let configured_mode = config
+        .pointer("/adversarialReview/mode")
+        .and_then(Value::as_str)
+        .unwrap_or("disabled");
+    let adversarial_enabled = input
+        .get("adversarialReview")
+        .and_then(Value::as_bool)
+        .unwrap_or(configured_mode == "enabled");
+    ensure!(
+        !(adversarial_enabled && execution_mode == "inline"),
+        "Adversarial review cannot guarantee independence in inline mode; use sealed-subagents."
+    );
+    let initial_status = if adversarial_enabled {
+        "collecting_initial"
+    } else {
+        "collecting"
+    };
     let request = json!({
         "schemaVersion": "1.0",
         "runId": run_id,
         "createdAt": created_at,
-        "status": "collecting",
+        "status": initial_status,
         "executionMode": execution_mode,
         "question": question.trim(),
         "context": context,
@@ -50,11 +68,24 @@ pub fn create_run(root: &Path, input: &Value) -> Result<Value> {
         "voting": {
             "method": "majority",
             "criticalRiskVeto": critical_risk_veto
+        },
+        "adversarialReview": {
+            "enabled": adversarial_enabled,
+            "anonymizePersonas": true,
+            "maxChallengesPerCandidate": config.pointer("/adversarialReview/maxChallengesPerCandidate").and_then(Value::as_u64).unwrap_or(5),
+            "minimumSeverity": config.pointer("/adversarialReview/minimumSeverity").and_then(Value::as_str).unwrap_or("medium"),
+            "requireFalsificationTest": config.pointer("/adversarialReview/requireFalsificationTest").and_then(Value::as_bool).unwrap_or(true),
+            "unresolvedCriticalAction": "human_review"
         }
     });
     validate_request(&request)?;
     let run_dir = run_dir_for(root, &run_id)?;
     fs::create_dir_all(run_dir.join("sealed"))?;
+    if adversarial_enabled {
+        fs::create_dir_all(run_dir.join("rounds/initial/sealed"))?;
+        fs::create_dir_all(run_dir.join("rounds/final/sealed"))?;
+        fs::create_dir_all(run_dir.join("adversarial"))?;
+    }
     fs::create_dir_all(run_dir.join("candidates"))?;
     atomic_write_json(&run_dir.join("request.json"), &request, 0o600)?;
     atomic_write_json(
@@ -64,6 +95,7 @@ pub fn create_run(root: &Path, input: &Value) -> Result<Value> {
             "runId": run_id,
             "requestSha256": hash_request(&request)?,
             "votes": {},
+            "rounds": {"initial": {}, "final": {}},
             "finalized": false,
             "createdAt": created_at
         }),
@@ -71,7 +103,7 @@ pub fn create_run(root: &Path, input: &Value) -> Result<Value> {
     )?;
     Ok(json!({
         "runId": run_id,
-        "status": "collecting",
+        "status": initial_status,
         "requestPath": format!(".magi/runs/{run_id}/request.json")
     }))
 }
@@ -80,12 +112,26 @@ pub fn run_status(root: &Path, run_id: &str) -> Result<Value> {
     let run_dir = run_dir_for(root, run_id)?;
     let request = read_json(&run_dir.join("request.json"))?;
     let mut sealed = Map::new();
+    let adversarial_enabled = adversarial::enabled(&request);
+    let round = if adversarial_enabled
+        && matches!(
+            request.get("status").and_then(Value::as_str),
+            Some("collecting_final" | "final_ready" | "finalized" | "suspended_for_human_review")
+        ) {
+        "final"
+    } else {
+        "initial"
+    };
     for persona in PERSONAS {
         sealed.insert(
             persona.to_owned(),
             Value::Bool(
                 run_dir
-                    .join("sealed")
+                    .join(if adversarial_enabled {
+                        format!("rounds/{round}/sealed")
+                    } else {
+                        "sealed".to_owned()
+                    })
                     .join(format!("{persona}.json"))
                     .exists(),
             ),
@@ -96,7 +142,9 @@ pub fn run_status(root: &Path, run_id: &str) -> Result<Value> {
         "runId": run_id,
         "status": request.get("status").cloned().unwrap_or(Value::Null),
         "sealed": sealed,
-        "ready": ready
+        "ready": ready,
+        "adversarialReview": adversarial_enabled,
+        "round": if adversarial_enabled { Value::String(round.to_owned()) } else { Value::Null }
     }))
 }
 
@@ -280,6 +328,46 @@ fn decision_markdown(decision: &Value) -> Result<String> {
                 .map(|item| format!("- {}", item.as_str().unwrap_or_default())),
         );
     }
+    if decision
+        .pointer("/adversarialReview/enabled")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        lines.extend([String::new(), "## Adversarial review".to_owned()]);
+        let changes = decision
+            .pointer("/adversarialReview/changes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        lines.push(format!("- Changed personas: {}", changes.len()));
+        let accepted = decision
+            .pointer("/adversarialReview/challenges/accepted")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        let rejected = decision
+            .pointer("/adversarialReview/challenges/rejectedWithEvidence")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        let unresolved = decision
+            .pointer("/adversarialReview/challenges/unresolvedHighOrCritical")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        lines.push(format!("- Accepted challenges: {accepted}"));
+        lines.push(format!("- Rejected with evidence: {rejected}"));
+        lines.push(format!(
+            "- Unresolved high/critical challenges: {}",
+            unresolved.len()
+        ));
+        for challenge in unresolved {
+            lines.push(format!(
+                "  - **{} / {}**: {}",
+                challenge["severity"].as_str().unwrap_or_default(),
+                challenge["category"].as_str().unwrap_or_default(),
+                challenge["counterArgument"].as_str().unwrap_or_default()
+            ));
+        }
+    }
     lines.extend([
         String::new(),
         "## Integrity".to_owned(),
@@ -307,16 +395,33 @@ pub fn tally_votes(root: &Path, run_id: &str) -> Result<Value> {
     }
     let mut manifest = read_json(&manifest_file)?;
     verify_request_hash(&request, &manifest)?;
+    let adversarial_enabled = adversarial::enabled(&request);
+    if adversarial_enabled {
+        ensure!(
+            request.get("status").and_then(Value::as_str) == Some("final_ready"),
+            "Final votes are not ready."
+        );
+    }
 
     let mut votes = Map::new();
     for persona in PERSONAS {
-        let vote_file = run_dir.join("sealed").join(format!("{persona}.json"));
+        let vote_file = if adversarial_enabled {
+            run_dir
+                .join("rounds/final/sealed")
+                .join(format!("{persona}.json"))
+        } else {
+            run_dir.join("sealed").join(format!("{persona}.json"))
+        };
         ensure!(vote_file.exists(), "Missing sealed vote: {persona}");
         let vote = read_json(&vote_file)?;
         validate_vote(&vote, Some(persona))?;
         ensure!(
             manifest
-                .pointer(&format!("/votes/{persona}/sha256"))
+                .pointer(&if adversarial_enabled {
+                    format!("/rounds/final/{persona}/sha256")
+                } else {
+                    format!("/votes/{persona}/sha256")
+                })
                 .and_then(Value::as_str)
                 == Some(&sha256_value(&vote)?),
             "Vote hash mismatch: {persona}"
@@ -434,7 +539,11 @@ pub fn tally_votes(root: &Path, run_id: &str) -> Result<Value> {
         );
         vote_hashes.insert(
             persona.to_owned(),
-            manifest["votes"][persona]["sha256"].clone(),
+            if adversarial_enabled {
+                manifest["rounds"]["final"][persona]["sha256"].clone()
+            } else {
+                manifest["votes"][persona]["sha256"].clone()
+            },
         );
         for (index, candidate) in vote["memoryCandidates"]
             .as_array()
@@ -463,6 +572,25 @@ pub fn tally_votes(root: &Path, run_id: &str) -> Result<Value> {
     }
 
     let finalized_at = now_iso();
+    let challenge_resolution = if adversarial_enabled {
+        adversarial::challenge_resolution(root, run_id, &votes)?
+    } else {
+        json!({"accepted": [], "rejectedWithEvidence": [], "unresolvedHighOrCritical": [], "suspendForHumanReview": false})
+    };
+    let changes = if adversarial_enabled {
+        PERSONAS.iter().filter_map(|persona| {
+            let initial = read_json(&run_dir.join("rounds/initial/sealed").join(format!("{persona}.json"))).ok()?;
+            let final_vote = &votes[*persona];
+            (initial["decision"] != final_vote["decision"] || initial["confidence"] != final_vote["confidence"]).then(|| json!({"persona": persona, "initialDecision": initial["decision"], "finalDecision": final_vote["decision"], "initialConfidence": initial["confidence"], "finalConfidence": final_vote["confidence"]}))
+        }).collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let result = if challenge_resolution["suspendForHumanReview"].as_bool() == Some(true) {
+        "suspended_for_human_review"
+    } else {
+        result
+    };
     let mut decision = json!({
         "schemaVersion": "1.0",
         "runId": run_id,
@@ -482,6 +610,7 @@ pub fn tally_votes(root: &Path, run_id: &str) -> Result<Value> {
         "assumptions": assumptions,
         "personaSummaries": persona_summaries,
         "memoryCandidates": memory_candidates,
+        "adversarialReview": {"enabled": adversarial_enabled, "changes": changes, "challenges": challenge_resolution},
         "integrity": {
             "requestSha256": manifest["requestSha256"],
             "voteSha256": vote_hashes,
@@ -496,7 +625,13 @@ pub fn tally_votes(root: &Path, run_id: &str) -> Result<Value> {
         &decision_markdown(&decision)?,
         0o600,
     )?;
-    request["status"] = Value::String("finalized".to_owned());
+    request["status"] = Value::String(
+        result
+            .eq("suspended_for_human_review")
+            .then_some("suspended_for_human_review")
+            .unwrap_or("finalized")
+            .to_owned(),
+    );
     atomic_write_json(&request_file, &request, 0o600)?;
     manifest["finalized"] = Value::Bool(true);
     manifest["finalizedAt"] = Value::String(finalized_at);
@@ -514,8 +649,15 @@ pub fn audit_run(root: &Path, run_id: &str) -> Result<Value> {
     if manifest.get("requestSha256").and_then(Value::as_str) != Some(&hash_request(&request)?) {
         errors.push("request hash mismatch".to_owned());
     }
+    let adversarial_enabled = adversarial::enabled(&request);
     for persona in PERSONAS {
-        let vote_file = run_dir.join("sealed").join(format!("{persona}.json"));
+        let vote_file = if adversarial_enabled {
+            run_dir
+                .join("rounds/final/sealed")
+                .join(format!("{persona}.json"))
+        } else {
+            run_dir.join("sealed").join(format!("{persona}.json"))
+        };
         if !vote_file.exists() {
             errors.push(format!("missing {persona} vote"));
             continue;
@@ -523,11 +665,52 @@ pub fn audit_run(root: &Path, run_id: &str) -> Result<Value> {
         let vote = read_json(&vote_file)?;
         validate_vote(&vote, Some(persona))?;
         if manifest
-            .pointer(&format!("/votes/{persona}/sha256"))
+            .pointer(&if adversarial_enabled {
+                format!("/rounds/final/{persona}/sha256")
+            } else {
+                format!("/votes/{persona}/sha256")
+            })
             .and_then(Value::as_str)
             != Some(&sha256_value(&vote)?)
         {
             errors.push(format!("{persona} vote hash mismatch"));
+        }
+    }
+    if adversarial_enabled {
+        for persona in PERSONAS {
+            let path = run_dir
+                .join("rounds/initial/sealed")
+                .join(format!("{persona}.json"));
+            if !path.exists() {
+                errors.push(format!("missing initial {persona} vote"));
+                continue;
+            }
+            let vote = read_json(&path)?;
+            if manifest
+                .pointer(&format!("/rounds/initial/{persona}/sha256"))
+                .and_then(Value::as_str)
+                != Some(&sha256_value(&vote)?)
+            {
+                errors.push(format!("initial {persona} vote hash mismatch"));
+            }
+        }
+        for (name, field) in [
+            ("mapping.json", "mappingSha256"),
+            ("input.json", "inputSha256"),
+            ("challenges.json", "challengesSha256"),
+        ] {
+            let path = run_dir.join("adversarial").join(name);
+            if !path.exists()
+                || manifest
+                    .pointer(&format!("/adversarial/{field}"))
+                    .and_then(Value::as_str)
+                    != read_json(&path)
+                        .ok()
+                        .and_then(|v| sha256_value(&v).ok())
+                        .as_deref()
+            {
+                errors.push(format!("adversarial {name} hash mismatch"));
+            }
         }
     }
     let decision_file = run_dir.join("decision.json");

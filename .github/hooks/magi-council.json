@@ -4,7 +4,7 @@
     "subagentStart": [
       {
         "type": "command",
-        "matcher": "magi-(melchior|balthasar|casper)",
+        "matcher": "magi-(melchior|balthasar|casper|thomas)",
         "bash": "magi hook subagent-start",
         "powershell": "magi hook subagent-start",
         "timeoutSec": 10

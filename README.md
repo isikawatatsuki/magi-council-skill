@@ -442,6 +442,14 @@ MAGI Councilでは、意思決定に必要な観点を次の3つに分離して�
 「科学者・母親・女性」という構成から着想を得ながら、ソフトウェア開発における意思決定へ適用できるよう、**技術・安全・現実**という3つの判断軸へ再構成しています。
 
 
+## 敵対的検証（THOMAS）
+
+`.magi/config.json` の `adversarialReview.mode` を `enabled` にすると、通常の3人格による初回投票を封印した後、非投票監査役 THOMAS が匿名化された判断を反証します。THOMASは4票目ではなく、採決には参加しません。
+
+処理順は「初回3票 → `magi run prepare-adversarial <runId>` → THOMASの反証 → 最終3票 → `magi run tally <runId>`」です。初回・最終票、匿名対応表、反証は別々に封印され、最終票だけが正式な採決に使われます。未解決の具体的なCritical反証は自動否決せず、`suspended_for_human_review`として人間確認へ移行します。
+
+このモードはモデル呼び出し回数とレイテンシを増やします。`inline`実行では厳密な独立性を保証できないため、敵対的検証との併用をCLIが拒否します。生成物は `rounds/initial/sealed`、`adversarial`、`rounds/final/sealed` に保存され、`magi run audit` がすべてのハッシュを検証します。無効時は従来の `collecting → ready → finalized` フローと既存Run形式を維持します。
+
 ## セキュリティ上の注意
 
 このテンプレートでは、通常のAgent操作やプロンプトインジェクションによって、ほかの人格の投票内容を偶発的に参照してしまう可能性を減らしています。
@@ -468,4 +476,3 @@ MAGI Councilでは、意思決定に必要な観点を次の3つに分離して�
 - [Vote schema](.agents/skills/magi-council/schemas/vote.schema.json): 投票JSONの完全な制約
 - [Request schema](.agents/skills/magi-council/schemas/request.schema.json): request JSONの完全な制約
 - [Security policy](SECURITY.md): 脆弱性報告とサポートするセキュリティ境界
-
