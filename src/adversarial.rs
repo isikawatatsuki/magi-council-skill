@@ -131,7 +131,12 @@ pub fn prepare(root: &Path, run_id: &str) -> Result<Value> {
     let mapping_value = Value::Object(mapping);
     let input = json!({
         "schemaVersion": "1.0", "runId": run_id, "question": request["question"],
-        "context": request["context"], "candidates": candidates
+        "context": request["context"],
+        "reviewPolicy": {
+            "maxChallengesPerCandidate": request.pointer("/adversarialReview/maxChallengesPerCandidate").and_then(Value::as_u64).unwrap_or(5),
+            "requireFalsificationTest": request.pointer("/adversarialReview/requireFalsificationTest").and_then(Value::as_bool).unwrap_or(true)
+        },
+        "candidates": candidates
     });
     fs::create_dir_all(run_dir.join("adversarial"))?;
     atomic_write_json(
@@ -140,13 +145,20 @@ pub fn prepare(root: &Path, run_id: &str) -> Result<Value> {
         0o600,
     )?;
     atomic_write_json(&run_dir.join("adversarial/input.json"), &input, 0o600)?;
+    let input_hash = sha256_value(&input)?;
     manifest["adversarial"] = json!({
-        "mappingSha256": sha256_value(&mapping_value)?, "inputSha256": sha256_value(&input)?, "challengesSha256": null
+        "mappingSha256": sha256_value(&mapping_value)?, "inputSha256": input_hash, "challengesSha256": null
     });
     request["status"] = Value::String("challenging".to_owned());
     atomic_write_json(&manifest_file, &manifest, 0o600)?;
     atomic_write_json(&request_file, &request, 0o600)?;
-    Ok(input)
+    Ok(json!({
+        "prepared": true,
+        "runId": run_id,
+        "candidateCount": candidates.len(),
+        "sha256": input_hash,
+        "receipt": format!("THOMAS_INPUT_PREPARED run={run_id} sha256={}", &input_hash[..16])
+    }))
 }
 
 pub fn seal_challenges(root: &Path, challenges: &Value, agent_id: Option<&str>) -> Result<Value> {

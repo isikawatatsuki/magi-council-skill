@@ -3,19 +3,28 @@
 ## 状態機械
 
 ```text
-created -> collecting -> ready -> finalized
-                    \-> invalid
+通常: created -> collecting -> ready -> finalized
+
+敵対的検証:
+created -> collecting_initial -> initial_ready -> challenging
+    -> challenge_ready -> collecting_final -> final_ready -> finalized
+                            \-> suspended_for_human_review
+任意の検証失敗 -> invalid
 ```
 
 - `created`: リクエストとマニフェストを書き込み中です。
 - `collecting`: 各ペルソナは封印済みの投票を1つ提出できます。
 - `ready`: 予定された投票がすべて存在し、ハッシュ検証に成功しています。
+- `collecting_initial` / `initial_ready`: 敵対的検証前の3票を収集中 / 収集済みです。
+- `challenging` / `challenge_ready`: THOMASが匿名候補を反証中 / 反証を封印済みです。
+- `collecting_final` / `final_ready`: 各ペルソナが自分への反証を受けて再投票中 / 最終3票を収集済みです。
 - `finalized`: 決定論的な集計が完了し、投票は変更できません。
+- `suspended_for_human_review`: 未解決の具体的なCritical反証があり、人間確認まで停止しています。
 - `invalid`: 監査に失敗したため、有効な結果として提示できません。
 
 ## 情報共有ルール
 
-すべてのペルソナは、同じ質問、共有コンテキスト、証拠、制約、未知事項を受け取ります。ペルソナ固有の原則と承認済みメモリは異なる場合があります。どのペルソナも、他のペルソナの回答、得票数、信頼度、メモリを受け取りません。
+すべてのペルソナは、同じ質問、共有コンテキスト、証拠、制約、未知事項を受け取ります。ペルソナ固有の原則と承認済みメモリは異なる場合があります。どのペルソナも、他のペルソナの回答、得票数、信頼度、メモリを受け取りません。最終ラウンドでは、自分の初回票と自分の匿名候補へ向けられた反証だけを追加で受け取ります。
 
 ## 投票
 
