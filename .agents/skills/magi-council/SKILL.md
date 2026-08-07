@@ -17,7 +17,7 @@ metadata:
 1. 独立実行を偽装してはいけません。Hookまたはサブエージェントを利用できない場合は、`executionMode: inline`と明記します。
 2. 封印モードでは、あるペルソナに別のペルソナの投票を要約、批評、予測させてはいけません。
 3. すべてのペルソナに、正規化したまったく同一の質問と共有証拠を提示します。
-4. Do not expose `.magi/runs/<runId>/sealed`, `manifest.json`, or persona-private memory to any model.
+4. `.magi/runs/<runId>`配下の封印済み投票、敵対的検証入力、匿名対応表、反証、`manifest.json`、ペルソナ非公開メモリを、対象サブエージェント以外のモデルへ公開してはいけません。
 5. 各ペルソナは`schemas/vote.schema.json`に準拠するJSON投票を1つだけ出力し、説明文を付けてはいけません。
 6. 最終結果を自然言語で計算してはいけません。`magi run tally`を実行します。
 7. 集計コマンドが生成した決定を書き換えてはいけません。
@@ -79,7 +79,7 @@ metadata:
 }
 ```
 
-4. オブジェクトを次のコマンドへパイプしてrunを作成します。
+4. オブジェクトへ`"adversarialReview": true`を追加し、次のコマンドへパイプしてrunを作成します。
 
 ```bash
 magi run create --stdin
@@ -93,20 +93,30 @@ runId <runId>を使用してください。MAGI投票スキーマに準拠する
 他のエージェントを呼び出さないでください。MAGIの状態を調べないでください。Markdownのコードフェンスを付けないでください。
 ```
 
-7. 親エージェントが封印済みの受領通知を3つだけ受け取ったことを確認します。
-8. 準備状態を確認します。
+7. 親エージェントが初回投票の封印済み受領通知を3つだけ受け取ったことを確認します。VS CodeではHookが投票本文を封印した後、サブエージェントを1回だけ継続させて受領通知へ置換します。
+8. `magi run status <runId>`で`initial_ready`を確認します。
 
 ```bash
 magi run status <runId>
 ```
 
-9. 集計します。
+9. 匿名化したTHOMAS入力を準備します。コマンドは準備完了receiptだけを返し、候補本文を親へ返しません。
+
+```bash
+magi run prepare-adversarial <runId>
+```
+
+10. run IDだけを指定して`magi-thomas`を起動します。`CHALLENGES_SEALED`受領通知だけを受け取り、状態が`challenge_ready`であることを確認します。
+11. 同じ3ペルソナを再度個別に起動します。Hookが各ペルソナ自身の初回票と、その匿名候補に対する反証だけを注入します。
+12. 最終投票の受領通知が3つ揃い、状態が`final_ready`であることを確認します。
+13. 集計と監査を実行します。
 
 ```bash
 magi run tally <runId>
+magi run audit <runId>
 ```
 
-10. Read only `.magi/runs/<runId>/decision.json` or `decision.md` and present:
+14. `.magi/runs/<runId>/decision.json`または`decision.md`だけを読み、次を提示します。
 
 - 決定
 - 得票数
@@ -134,7 +144,8 @@ magi memory approve \
 ## 利用可能なコマンド
 
 - `magi init` - 既存のポリシーを上書きせず、安全なプロジェクトの初期設定を作成します。
-- `magi run create|status|import-votes|tally|audit` - runのライフサイクル全体を管理します。
+- `magi run create|status|import-votes|prepare-adversarial|tally|audit` - runのライフサイクル全体を管理します。
+- `magi thomas seal` - THOMASの反証を検証して封印します。
 - `magi persona load` - 選択したペルソナの原則と承認済みメモリだけを読み込みます。
 - `magi vote seal` - 1つのペルソナ投票を検証し、アトミックに封印します。
 - `magi memory approve` - 人間の明示的な承認後に候補を1つ昇格します。
