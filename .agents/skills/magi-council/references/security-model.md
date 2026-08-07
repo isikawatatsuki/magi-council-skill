@@ -1,39 +1,39 @@
-# Security model
+# セキュリティモデル
 
-## Protected assets
+## 保護対象
 
-- sealed persona votes
-- vote manifest and hashes
-- persona-private approved memory
-- constitution and voting configuration
-- hook and tally implementation
+- 封印済みのペルソナ投票
+- 投票マニフェストとハッシュ
+- ペルソナ固有の承認済み非公開メモリ
+- 憲章と投票設定
+- Hookと集計の実装
 
-## Defenses included
+## 組み込みの防御策
 
-1. Separate Custom Agents with isolated contexts.
-2. Persona agents have `tools: []` in strict mode.
-3. `subagentStart` injects only the selected persona's policy and memory.
-4. `subagentStop` validates, normalizes, atomically writes, hashes, and redacts the vote.
-5. `preToolUse` blocks direct model access to protected paths.
-6. `postToolUse` redacts protected paths if a broad search accidentally returns them.
-7. Tally is deterministic and refuses missing, duplicated, malformed, or hash-mismatched votes.
-8. Memory promotion requires a human identifier and an explicit command.
+1. コンテキストを隔離した個別のカスタムエージェントを使用します。
+2. strictモードでは、ペルソナエージェントに`tools: []`を設定します。
+3. `subagentStart`は、選択したペルソナのポリシーとメモリだけを注入します。
+4. `subagentStop`は、投票を検証、正規化、アトミックな書き込み、ハッシュ化、墨消しします。
+5. `preToolUse`は、保護対象パスへのモデルからの直接アクセスをブロックします。
+6. 広範な検索で保護対象パスが誤って返された場合、`postToolUse`がその内容を墨消しします。
+7. 集計は決定論的であり、欠落、重複、不正な形式、ハッシュ不一致の投票を拒否します。
+8. メモリの昇格には、人間の識別子と明示的なコマンドが必要です。
 
-## Limits
+## 制限
 
-This is logical isolation inside one host account. It is not an operating-system sandbox.
+これは1つのホストアカウント内での論理的な隔離であり、OSレベルのサンドボックスではありません。
 
-If an agent can execute unrestricted arbitrary code as the same OS user, it can potentially bypass path-based Hooks by constructing paths dynamically, reading process memory, disabling Hooks, or replacing the binary. The strict persona agents therefore have no tools. The Orchestrator retains execution ability only to invoke the reviewed `magi` binary.
+エージェントが同じOSユーザーとして制限なく任意のコードを実行できる場合、パスの動的な組み立て、プロセスメモリの読み取り、Hookの無効化、バイナリの置き換えによって、パスベースのHookを回避できる可能性があります。そのため、strictペルソナエージェントにはツールを付与しません。Orchestratorが実行権限を保持するのは、レビュー済みの`magi`バイナリを呼び出すためだけです。
 
-For hostile-agent or high-assurance deployments:
+敵対的なエージェントを想定する環境、または高い保証が必要な環境では、次の対策を行います。
 
-- run each persona in a separate process or container
-- expose only `read_shared_context` and `submit_vote` RPC/MCP tools
-- keep sealed storage in a service inaccessible to persona processes
-- sign votes with service-held keys
-- enforce append-only audit storage
-- require human approval before external side effects
+- 各ペルソナを別のプロセスまたはコンテナで実行する
+- `read_shared_context`と`submit_vote`のRPC/MCPツールだけを公開する
+- ペルソナプロセスからアクセスできないサービスに封印済みストレージを配置する
+- サービスが保持する鍵で投票に署名する
+- 追記専用の監査ストレージを強制する
+- 外部への副作用が発生する前に人間の承認を必須にする
 
-## Fail behavior
+## 障害時の動作
 
-GitHub command `preToolUse` hooks fail closed on crashes and non-zero exits, but hook timeouts fail open. Keep the guard binary local, self-contained, and fast. Do not replace it with network calls.
+GitHubコマンドの`preToolUse` Hookは、クラッシュまたはゼロ以外の終了コードの場合にfail closedとなりますが、Hookのタイムアウト時にはfail openとなります。ガードバイナリはローカルに配置し、自己完結型で高速に保ちます。ネットワーク呼び出しに置き換えてはいけません。

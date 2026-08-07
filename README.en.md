@@ -104,9 +104,9 @@ MAGI Council aims to ensure that:
 | --- | --- | --- |
 | GitHub Copilot CLI / cloud agent | `sealed-subagents` | Runs three independent GitHub Custom Agents and seals their votes with Hooks. |
 | Claude Code | `sealed-subagents` | Each persona seals its vote and returns only a receipt to the parent. |
-| GitHub Copilot VS Code Agent mode | `inline` | Evaluates three perspectives in one context; persona independence and Hook-based sealing are not guaranteed. |
+| GitHub Copilot VS Code Agent mode | `sealed-subagents` when supported | Uses separate Custom Agents and hides vote bodies from the parent when the subagent tool and Hooks are available; otherwise uses `inline`. |
 
-`sealed-subagents` is the default. Use `inline` only when Subagents or Hooks are unavailable, and disclose that execution was not independent. Both modes use the same deterministic `magi` binary.
+`sealed-subagents` is the default. Select the mode by capability, not by host name: Custom Agents, a subagent tool, and the `subagentStart`/`subagentStop` Hooks must be available. Use `inline` only when Subagents or Hooks are unavailable, and disclose that execution was not independent. Both modes use the same deterministic `magi` binary.
 
 ## From Installation to First Decision
 
@@ -143,7 +143,7 @@ cp -R "$SOURCE/.agents/skills/magi-council" "$TARGET/.agents/skills/"
 
 Copy the Custom Agents and Hooks for your host. Review and merge existing files instead of overwriting them without inspection.
 
-GitHub Copilot CLI / cloud agent:
+GitHub Copilot (CLI, cloud agent, and VS Code Agent mode):
 
 ```bash
 mkdir -p "$TARGET/.github"
@@ -158,7 +158,9 @@ mkdir -p "$TARGET/.claude"
 cp -R "$SOURCE/.claude/agents" "$TARGET/.claude/"
 ```
 
-GitHub Copilot VS Code Agent mode can use `.agents/skills/magi-council/`, but it falls back to `inline` mode when independent Subagents and Hooks are unavailable.
+GitHub Copilot VS Code Agent mode uses `sealed-subagents` when the three persona Custom Agents, a subagent tool, and Hooks are available. Abort sealed execution if the parent receives a persona vote body instead of only `VOTE_SEALED`.
+
+When Hooks are unavailable and execution falls back to `inline`, still run each persona in a fresh subagent context when the subagent tool is available. Do not load persona-private approved memory into the parent, and do not pass earlier votes, counts, or confidence to later personas. This improves context separation but must remain recorded as `inline` because vote bodies return to the parent.
 
 ### 3. Enable host Hooks
 

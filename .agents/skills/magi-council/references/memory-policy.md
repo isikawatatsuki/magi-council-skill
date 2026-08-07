@@ -1,48 +1,48 @@
-# Persona memory policy
+# ペルソナメモリポリシー
 
-## What belongs in memory
+## メモリに保存する内容
 
-Store only reusable, scoped decision principles explicitly approved by a human, for example:
+人間が明示的に承認した、再利用可能で適用範囲が限定された判断原則だけを保存します。例:
 
-- prefer compatibility over elegance in legacy modules
-- require a rollback plan for irreversible data migrations
-- permit temporary technical debt only when a tracked remediation exists
+- レガシーモジュールでは、洗練性より互換性を優先する
+- 元に戻せないデータ移行にはロールバック計画を必須とする
+- 追跡可能な解消計画がある場合にのみ、一時的な技術的負債を許容する
 
-Do not store:
+次の内容は保存しません。
 
-- raw conversations
-- secrets or personal data
-- model-generated personality guesses
-- temporary project facts
-- another persona's vote
-- final vote counts as a persuasion signal
+- 未加工の会話
+- 秘密情報または個人データ
+- モデルが生成した性格の推測
+- 一時的なプロジェクトの事実
+- 他のペルソナの投票
+- 説得材料としての最終得票数
 
-## Candidate lifecycle
+## 候補のライフサイクル
 
 ```text
-vote suggestion -> decision memoryCandidates -> human review -> approved memory
+投票での提案 -> 決定のmemoryCandidates -> 人間によるレビュー -> 承認済みメモリ
 ```
 
-A candidate must contain:
+候補には次の内容を含める必要があります。
 
-- a narrow principle
-- scopes
-- applicable conditions
-- non-applicable conditions
-- rationale
-- source run and persona
+- 限定的な原則
+- 適用範囲
+- 適用条件
+- 非適用条件
+- 根拠
+- 出典となるrunとペルソナ
 
-## Precedence
+## 優先順位
 
-1. Constitution
-2. Explicit project policy
-3. Persona foundation
-4. Approved scoped memory
-5. Current shared context
-6. General model knowledge
+1. 憲章
+2. 明示的なプロジェクトポリシー
+3. ペルソナの基本原則
+4. 適用範囲が定められた承認済みメモリ
+5. 現在の共有コンテキスト
+6. モデルの一般知識
 
-Higher levels override lower levels. Old memory must not override a newer constitution.
+上位の項目は下位の項目に優先します。古いメモリが新しい憲章を上書きしてはいけません。
 
-## Maintenance
+## メンテナンス
 
-Approved entries have priority, enabled status, timestamps, source run, and approver. Disable or supersede stale entries instead of silently editing their history.
+承認済みの各項目には、優先度、有効状態、タイムスタンプ、出典となるrun、承認者を記録します。古くなった項目の履歴を暗黙的に編集せず、無効化するか新しい項目で置き換えます。

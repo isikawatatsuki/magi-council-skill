@@ -112,9 +112,9 @@ MAGI Councilでは、以下を別々の要素として管理します。
 | --- | --- | --- |
 | GitHub Copilot CLI / cloud agent | `sealed-subagents` | GitHub側のCustom AgentとHookを使い、3人格を独立実行して投票を封印する |
 | Claude Code | `sealed-subagents` | Claude側のCustom AgentとHookを使い、各人格が投票を封印してreceiptだけを親へ返す |
-| GitHub Copilot VS Code Agent mode | `inline` | 1つのコンテキストで3観点を評価する。人格の独立性とHookによる封印は保証されない |
+| GitHub Copilot VS Code Agent mode | `sealed-subagents`（対応時） | Custom Agent、subagentツール、Hookが利用可能なら、3人格を個別実行して投票本文を親から隠す。いずれかを利用できない場合のみ`inline` |
 
-`sealed-subagents`が既定です。SubagentまたはHooksを利用できない場合だけ`inline`を指定し、独立実行ではないことを明示します。どちらのモードでも、最終結果は同じ`magi`バイナリが計算します。
+`sealed-subagents`が既定です。ホスト名ではなく、Custom Agent、subagentツール、`subagentStart`/`subagentStop` Hookの利用可否で実行モードを決めます。SubagentまたはHookを利用できない場合だけ`inline`を指定し、独立実行ではないことを明示します。どちらのモードでも、最終結果は同じ`magi`バイナリが計算します。
 
 ## 導入から使用まで
 
@@ -151,7 +151,7 @@ cp -R "$SOURCE/.agents/skills/magi-council" "$TARGET/.agents/skills/"
 
 使用するホストに応じてCustom AgentとHookもコピーします。既存ファイルがある場合は、そのまま上書きせず内容を確認してマージしてください。
 
-GitHub Copilot CLI / cloud agent:
+GitHub Copilot（CLI、cloud agent、VS Code Agent mode）:
 
 ```bash
 mkdir -p "$TARGET/.github"
@@ -166,7 +166,9 @@ mkdir -p "$TARGET/.claude"
 cp -R "$SOURCE/.claude/agents" "$TARGET/.claude/"
 ```
 
-GitHub Copilot VS Code Agent modeでは`.agents/skills/magi-council/`を使用できますが、SubagentとHookによる独立実行が利用できない場合は`inline`モードになります。
+GitHub Copilot VS Code Agent modeでも、Custom Agent一覧に3つのペルソナがあり、subagentツールとHookを利用できる場合は`sealed-subagents`を使用します。ペルソナの応答本文ではなく`VOTE_SEALED`だけが親へ返ることを確認できない場合は、sealed実行を中止します。
+
+Hookを利用できず`inline`へ切り替える場合でも、subagentツールがあれば3つのペルソナを別々の新規コンテキストで実行します。ペルソナ固有の承認済み非公開メモリ、先行する投票、得票数、信頼度は後続ペルソナへ渡しません。この方式はコンテキスト分離を改善しますが、投票本文が親へ返るため`sealed-subagents`とは記録しません。
 
 ### 3. ホストのHookを有効にする
 
