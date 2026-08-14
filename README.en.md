@@ -4,11 +4,22 @@
 
 [Japanese](README.md) | English
 
-MAGI Council is an Agent Skill template that asks three independent Custom Agents to evaluate a proposal and produces a final decision from their votes.
+MAGI Council is an Agent Skill template that asks three separated subagent contexts to evaluate a proposal and produces a final decision from their votes.
 
 Each agent votes without seeing the other agents' responses. Hooks temporarily seal the votes, and once all three votes are available, a single Rust binary applies deterministic tallying rules.
 
-This is more than asking an AI to "think as three personas." It is designed for independence, reproducibility, and auditability.
+This is more than asking an AI to "think as three personas." It emphasizes context and vote separation, deterministic tallying, and auditable records.
+
+## Guarantees and Known Limitations
+
+- Supported Hosts separate subagent contexts and vote information. MAGI Council does not automatically provide different providers, foundation models, processes, or OS identities. Three personas using the same or similar model can make correlated mistakes.
+- Majority voting deterministically maps the recorded votes to a result; it does not prove correctness or safety. `approved` means the configured process retained no blocking evidence for this input.
+- Confidence is self-reported and uncalibrated. A value of 80 is not an 80% correctness probability.
+- SHA-256 and the manifest detect ordinary missing or modified records while the CLI, Hooks, and manifest remain trusted. They do not stop a same-user or administrator attacker from replacing both an artifact and its hash, and they are not signatures or creator proof.
+- The recorded input, protocol/schema, deterministic rules, result, and audit procedure are reproducible. Model output is not guaranteed to be identical across reruns because providers, model versions, sampling, context, and tools can change.
+- `sealed-subagents` logical separation exists only when the Host actually provides Custom Agents/Subagents, every required Hook, and vote-body confidentiality. `inline` provides neither a secret ballot nor an independent-context guarantee.
+
+See the canonical [Threat Model](docs/THREAT_MODEL.md) for attackers, CLI/Hook/Host/file-system/administrator trust boundaries, prevention and detection limits, and high-assurance deployment guidance.
 
 ## From Question to Answer
 
@@ -258,7 +269,7 @@ Each persona votes `approve`, `reject`, or `abstain`. The default method is a si
 | No majority | `undecided` |
 | Veto enabled and at least one unmitigated `critical` risk | `rejected_by_veto` |
 
-The critical-risk veto takes precedence over the majority. Confidence is an integer from 0 through 100, but it is not a probability guarantee. The final result records minimum, median, and maximum confidence instead of averaging disagreement away.
+The critical-risk veto takes precedence over the majority. Confidence is a persona's self-reported, uncalibrated integer from 0 through 100; 80 does not mean an 80% probability of correctness. The final result records minimum, median, and maximum plus `type: self_reported` and `calibrated: false` instead of averaging disagreement away.
 
 ## Configuration
 
@@ -305,14 +316,14 @@ Votes are validated against `vote.schema.json`.
 | --- | --- |
 | `runId` / `persona` | Target run and voting persona. |
 | `decision` | One of `approve`, `reject`, or `abstain`. |
-| `confidence` | Integer from 0 through 100. |
+| `confidence` | Self-reported, uncalibrated integer from 0 through 100; not a correctness probability. |
 | `summary` / `reasons` | Decision summary and evidence-backed reasons. |
 | `conditions` | Conditions required for approval. |
 | `risks` | Risks with severity, mitigation status, and an optional mitigation. |
 | `assumptions` | Unverified facts or premises used in the judgment. |
 | `memoryCandidates` | Candidate reusable principles, limited to three per vote. |
 
-New votes use `schemaVersion: "1.2"`. Every `reasons[].evidence[]` item has a unique `id`, a `type`, the verifiable `claim`, an `observedAt` timestamp, and the following trace locator. Risks reference IDs in the same vote through `evidenceRefs`; `evidenceAssessments` classifies each ID as `supports_approve`, `supports_reject`, or `uncertain`.
+New votes use `schemaVersion: "1.3"`. Every `reasons[].evidence[]` item has a unique `id`, a `type`, the verifiable `claim`, an `observedAt` timestamp, and the following trace locator. Risks reference IDs in the same vote through `evidenceRefs`; `evidenceAssessments` classifies each ID as `supports_approve`, `supports_reject`, or `uncertain`.
 
 | Evidence type | Required locator | Optional details |
 | --- | --- | --- |
@@ -320,7 +331,7 @@ New votes use `schemaVersion: "1.2"`. Every `reasons[].evidence[]` item has a un
 | `test` | `command`, `outcome` | `output`, `commitSha` |
 | `issue` / `pull_request` / `external_document` | HTTP(S) `url` | `title` |
 
-Do not fabricate unavailable evidence; record it as an assumption, condition, abstention, or lower confidence instead. `schemaVersion: "1.0"` and `"1.1"` remain accepted for reading and auditing existing runs, but must not be used for new votes.
+Do not fabricate unavailable evidence; record it as an assumption, condition, abstention, or lower confidence instead. `schemaVersion: "1.0"`, `"1.1"`, and `"1.2"` remain accepted for reading and auditing existing runs, but must not be used for new votes.
 
 ## Generated Artifacts
 
@@ -463,7 +474,8 @@ See [Security model](.agents/skills/magi-council/references/security-model.md) f
 ## Detailed Specification
 
 * [Council protocol](.agents/skills/magi-council/references/protocol.md): state transitions, voting, confidence, and integrity
-* [Security model](.agents/skills/magi-council/references/security-model.md): protected assets, defenses, and limitations
+* [Threat Model](docs/THREAT_MODEL.md): canonical attackers, trust boundaries, guarantees, and high-assurance deployment guidance
+* [Security model](.agents/skills/magi-council/references/security-model.md): concise operational reference used by the skill
 * [Memory policy](.agents/skills/magi-council/references/memory-policy.md): candidate requirements, precedence, and maintenance
 * [Vote schema](.agents/skills/magi-council/schemas/vote.schema.json): complete constraints for vote JSON
 * [Request schema](.agents/skills/magi-council/schemas/request.schema.json): complete constraints for request JSON

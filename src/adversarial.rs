@@ -97,7 +97,7 @@ pub fn analyze_votes(request: &Value, votes: &Map<String, Value>) -> Result<Valu
             if risk["severity"] != "critical" || risk["mitigated"] != false {
                 continue;
             }
-            if vote["schemaVersion"] != "1.2" {
+            if !matches!(vote["schemaVersion"].as_str(), Some("1.2" | "1.3")) {
                 supported_critical.insert(format!("legacy:{persona}"));
                 continue;
             }
@@ -684,8 +684,9 @@ mod tests {
             })]
         });
         json!({
-            "schemaVersion": "1.2", "runId": "magi-20260805120000-abcdef123456",
+            "schemaVersion": "1.3", "runId": "magi-20260805120000-abcdef123456",
             "persona": persona, "decision": decision, "confidence": 80,
+            "confidenceType": "self_reported", "confidenceCalibrated": false,
             "summary": "Summary", "reasons": [{"code": "R1", "statement": "Reason", "evidence": evidence}],
             "conditions": [], "risks": risks, "assumptions": [],
             "evidenceAssessments": assessments, "memoryCandidates": []

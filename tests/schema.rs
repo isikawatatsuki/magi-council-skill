@@ -35,11 +35,13 @@ fn request() -> Value {
 
 fn vote() -> Value {
     json!({
-        "schemaVersion": "1.2",
+        "schemaVersion": "1.3",
         "runId": "magi-20260814000000-abcdef123456",
         "persona": "melchior",
         "decision": "approve",
         "confidence": 90,
+        "confidenceType": "self_reported",
+        "confidenceCalibrated": false,
         "summary": "The evidence is traceable.",
         "reasons": [{
             "code": "TRACEABLE",
@@ -124,7 +126,7 @@ fn schema_accepts_runtime_generated_normal_and_adversarial_requests() {
 }
 
 #[test]
-fn schemas_accept_runtime_v12_request_and_structured_vote() {
+fn schemas_accept_runtime_v12_request_and_v13_structured_vote() {
     let request_schema = schema(include_str!(
         "../.agents/skills/magi-council/schemas/request.schema.json"
     ));
@@ -141,7 +143,7 @@ fn schemas_accept_runtime_v12_request_and_structured_vote() {
 }
 
 #[test]
-fn schemas_and_runtime_reject_malformed_v12_evidence() {
+fn schemas_and_runtime_reject_malformed_v13_evidence() {
     let vote_schema = schema(include_str!(
         "../.agents/skills/magi-council/schemas/vote.schema.json"
     ));
@@ -251,6 +253,38 @@ fn structured_v11_remains_readable_without_v12_relationship_fields() {
 }
 
 #[test]
+fn evidence_v12_remains_readable_without_v13_confidence_metadata() {
+    let vote_schema = schema(include_str!(
+        "../.agents/skills/magi-council/schemas/vote.schema.json"
+    ));
+    let mut old_vote = vote();
+    old_vote["schemaVersion"] = json!("1.2");
+    old_vote.as_object_mut().unwrap().remove("confidenceType");
+    old_vote
+        .as_object_mut()
+        .unwrap()
+        .remove("confidenceCalibrated");
+    assert!(schema_accepts(&vote_schema, &old_vote));
+    validate_vote(&old_vote, Some("melchior")).unwrap();
+}
+
+#[test]
+fn v13_requires_self_reported_uncalibrated_confidence_metadata() {
+    let vote_schema = schema(include_str!(
+        "../.agents/skills/magi-council/schemas/vote.schema.json"
+    ));
+    let mut missing = vote();
+    missing.as_object_mut().unwrap().remove("confidenceType");
+    assert!(!schema_accepts(&vote_schema, &missing));
+    assert!(validate_vote(&missing, None).is_err());
+
+    let mut falsely_calibrated = vote();
+    falsely_calibrated["confidenceCalibrated"] = json!(true);
+    assert!(!schema_accepts(&vote_schema, &falsely_calibrated));
+    assert!(validate_vote(&falsely_calibrated, None).is_err());
+}
+
+#[test]
 fn v12_request_rejects_unknown_fields_in_schema_and_runtime() {
     let request_schema = schema(include_str!(
         "../.agents/skills/magi-council/schemas/request.schema.json"
@@ -263,7 +297,7 @@ fn v12_request_rejects_unknown_fields_in_schema_and_runtime() {
 }
 
 #[test]
-fn v12_schema_requires_evidence_relationships_and_runtime_resolves_refs() {
+fn v13_schema_requires_evidence_relationships_and_runtime_resolves_refs() {
     let vote_schema = schema(include_str!(
         "../.agents/skills/magi-council/schemas/vote.schema.json"
     ));
