@@ -100,8 +100,8 @@ runId <runId>を使用してください。MAGI投票スキーマに準拠する
 magi run status <runId>
 ```
 
-9. 状態が`ready`なら通常Runです。`magi run tally <runId>`と`magi run audit <runId>`を実行し、手順15へ進みます。状態が`initial_ready`なら敵対的検証Runとして次へ進みます。それ以外の状態、欠落Receipt、Vote本文の露出はfail closedで停止します。
-10. 匿名化したTHOMAS入力を準備します。コマンドは準備完了receiptだけを返し、候補本文を親へ返しません。
+9. 状態が`ready`なら通常Runです。`magi run tally <runId>`と`magi run audit <runId>`を実行し、手順15へ進みます。状態が`initial_ready`なら次のprepareを実行してstatusを再確認します。`auto`で`ready`なら追加Agentを起動せず採決・監査へ、`suspended_for_human_review`なら停止Decisionの採決・監査へ進みます。`challenging`の場合だけ敵対的検証Runとして手順11へ進みます。それ以外の状態、欠落Receipt、Vote本文の露出はfail closedで停止します。
+10. 匿名化したTHOMAS入力またはEvidence-aware Trigger分析を準備します。コマンドは準備完了receiptだけを返し、候補本文やTrigger分析を親へ返しません。
 
 ```bash
 magi run prepare-adversarial <runId>

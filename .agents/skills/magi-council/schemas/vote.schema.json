@@ -9,7 +9,7 @@
     "reasons", "conditions", "risks", "assumptions", "memoryCandidates"
   ],
   "properties": {
-    "schemaVersion": { "enum": ["1.0", "1.1"] },
+    "schemaVersion": { "enum": ["1.0", "1.1", "1.2"] },
     "runId": { "type": "string", "pattern": "^magi-[a-z0-9-]+$", "minLength": 20, "maxLength": 80 },
     "persona": { "enum": ["melchior", "balthasar", "casper"] },
     "decision": { "enum": ["approve", "reject", "abstain"] },
@@ -29,7 +29,7 @@
     },
     "conditions": { "$ref": "#/$defs/shortStringArray" },
     "risks": {
-      "type": "array", "maxItems": 12,
+      "type": "array", "maxItems": 144,
       "items": {
         "type": "object", "additionalProperties": false,
         "required": ["severity", "statement", "mitigated"],
@@ -37,11 +37,23 @@
           "severity": { "enum": ["low", "medium", "high", "critical"] },
           "statement": { "type": "string", "minLength": 1, "maxLength": 2000 },
           "mitigated": { "type": "boolean" },
-          "mitigation": { "type": "string", "minLength": 1, "maxLength": 2000 }
+          "mitigation": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "evidenceRefs": { "$ref": "#/$defs/evidenceRefArray" }
         }
       }
     },
     "assumptions": { "$ref": "#/$defs/shortStringArray" },
+    "evidenceAssessments": {
+      "type": "array", "maxItems": 12,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["evidenceRef", "impact"],
+        "properties": {
+          "evidenceRef": { "$ref": "#/$defs/evidenceId" },
+          "impact": { "enum": ["supports_approve", "supports_reject", "uncertain"] }
+        }
+      }
+    },
     "memoryCandidates": {
       "type": "array", "maxItems": 3,
       "items": {
@@ -76,6 +88,7 @@
     "requiredTagArray": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
     "requiredTextArray": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
     "textArray": { "type": "array", "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+    "evidenceRefArray": { "type": "array", "maxItems": 12, "uniqueItems": true, "items": { "$ref": "#/$defs/evidenceId" } },
     "structuredEvidence": {
       "oneOf": [
         {
@@ -120,7 +133,7 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "schemaVersion": { "const": "1.1" } }, "required": ["schemaVersion"] },
+      "if": { "properties": { "schemaVersion": { "enum": ["1.1", "1.2"] } }, "required": ["schemaVersion"] },
       "then": {
         "properties": {
           "reasons": {
@@ -128,6 +141,15 @@
               "properties": { "evidence": { "items": { "$ref": "#/$defs/structuredEvidence" } } }
             }
           }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "schemaVersion": { "const": "1.2" } }, "required": ["schemaVersion"] },
+      "then": {
+        "required": ["evidenceAssessments"],
+        "properties": {
+          "risks": { "items": { "required": ["evidenceRefs"] } }
         }
       }
     }

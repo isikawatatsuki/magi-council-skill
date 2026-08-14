@@ -5,7 +5,7 @@ use crate::sha256_value;
 use anyhow::{Result, anyhow, bail, ensure};
 use rand::seq::SliceRandom;
 use serde_json::{Map, Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -29,6 +29,190 @@ pub fn enabled(request: &Value) -> bool {
         .pointer("/adversarialReview/enabled")
         .and_then(Value::as_bool)
         == Some(true)
+}
+
+pub fn mode(request: &Value) -> &str {
+    request
+        .pointer("/adversarialReview/mode")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| {
+            if enabled(request) {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        })
+}
+
+fn vote_evidence(vote: &Value) -> BTreeMap<String, Value> {
+    let mut evidence = BTreeMap::new();
+    for reason in vote["reasons"].as_array().into_iter().flatten() {
+        for item in reason["evidence"].as_array().into_iter().flatten() {
+            if let Some(id) = item.get("id").and_then(Value::as_str) {
+                evidence.insert(id.to_owned(), item.clone());
+            }
+        }
+    }
+    evidence
+}
+
+pub fn analyze_votes(request: &Value, votes: &Map<String, Value>) -> Result<Value> {
+    let mut decision_kinds = BTreeSet::new();
+    let mut evidence_by_persona = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut definitions = BTreeMap::<String, Value>::new();
+    let mut definition_conflicts = BTreeSet::new();
+    let mut impacts = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut supported_critical = BTreeSet::new();
+    let mut unsupported_critical = Vec::new();
+
+    for (persona, vote) in votes {
+        validate_vote(vote, Some(persona))?;
+        decision_kinds.insert(vote["decision"].as_str().unwrap_or("abstain").to_owned());
+        let evidence = vote_evidence(vote);
+        let ids = evidence.keys().cloned().collect::<BTreeSet<_>>();
+        for (id, item) in evidence {
+            if definitions
+                .get(&id)
+                .is_some_and(|existing| existing != &item)
+            {
+                definition_conflicts.insert(id.clone());
+            } else {
+                definitions.entry(id).or_insert(item);
+            }
+        }
+        evidence_by_persona.insert(persona.clone(), ids.clone());
+
+        for assessment in vote["evidenceAssessments"].as_array().into_iter().flatten() {
+            if let (Some(id), Some(impact)) = (
+                assessment["evidenceRef"].as_str(),
+                assessment["impact"].as_str(),
+            ) {
+                impacts
+                    .entry(id.to_owned())
+                    .or_default()
+                    .insert(impact.to_owned());
+            }
+        }
+        for risk in vote["risks"].as_array().into_iter().flatten() {
+            if risk["severity"] != "critical" || risk["mitigated"] != false {
+                continue;
+            }
+            if vote["schemaVersion"] != "1.2" {
+                supported_critical.insert(format!("legacy:{persona}"));
+                continue;
+            }
+            let refs = risk["evidenceRefs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<BTreeSet<_>>();
+            if !refs.is_empty() && refs.iter().all(|id| ids.contains(id)) {
+                supported_critical.extend(refs);
+            } else {
+                unsupported_critical.push(json!({
+                    "persona": persona,
+                    "statement": risk["statement"],
+                    "evidenceIds": refs
+                }));
+            }
+        }
+    }
+
+    let mut triggers = Vec::new();
+    if decision_kinds.len() > 1 {
+        triggers.push(json!({"type": "split_vote", "evidenceIds": []}));
+    }
+    if !unsupported_critical.is_empty() {
+        let ids = unsupported_critical
+            .iter()
+            .flat_map(|risk| risk["evidenceIds"].as_array().into_iter().flatten())
+            .filter_map(Value::as_str)
+            .collect::<BTreeSet<_>>();
+        triggers.push(json!({"type": "unsupported_critical", "evidenceIds": ids}));
+    }
+
+    let approve = votes
+        .values()
+        .filter(|vote| vote["decision"] == "approve")
+        .count();
+    let reject = votes
+        .values()
+        .filter(|vote| vote["decision"] == "reject")
+        .count();
+    let majority = if approve >= 2 {
+        Some("approve")
+    } else if reject >= 2 {
+        Some("reject")
+    } else {
+        None
+    };
+    if let Some(majority) = majority {
+        let majority_ids = votes
+            .iter()
+            .filter(|(_, vote)| vote["decision"] == majority)
+            .flat_map(|(persona, _)| {
+                evidence_by_persona
+                    .get(persona)
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+            })
+            .collect::<BTreeSet<_>>();
+        let minority_ids = votes
+            .iter()
+            .filter(|(_, vote)| vote["decision"] != majority)
+            .flat_map(|(persona, _)| {
+                evidence_by_persona
+                    .get(persona)
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+            })
+            .filter(|id| !majority_ids.contains(id))
+            .collect::<BTreeSet<_>>();
+        if !minority_ids.is_empty() {
+            triggers.push(json!({"type": "minority_unique_evidence", "evidenceIds": minority_ids}));
+        }
+    }
+
+    let mut conflict_ids = impacts
+        .iter()
+        .filter(|(_, values)| {
+            values.contains("supports_approve") && values.contains("supports_reject")
+        })
+        .map(|(id, _)| id.clone())
+        .collect::<BTreeSet<_>>();
+    conflict_ids.extend(definition_conflicts);
+    if !conflict_ids.is_empty() {
+        triggers.push(json!({"type": "evidence_conflict", "evidenceIds": conflict_ids}));
+    }
+
+    let high_risk_domains = request
+        .pointer("/riskProfile/highRiskDomains")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if !high_risk_domains.is_empty() {
+        triggers.push(json!({
+            "type": "explicit_high_risk",
+            "evidenceIds": [],
+            "domains": high_risk_domains
+        }));
+    }
+    let review_required = mode(request) == "enabled"
+        || (mode(request) == "auto" && supported_critical.is_empty() && !triggers.is_empty());
+    Ok(json!({
+        "schemaVersion": "1.0",
+        "runId": request["runId"],
+        "reviewMode": mode(request),
+        "triggers": triggers,
+        "supportedCriticalEvidenceIds": supported_critical,
+        "unsupportedCriticalRisks": unsupported_critical,
+        "evidenceSufficiency": "traceable_locator_only",
+        "reviewRequired": review_required
+    }))
 }
 
 fn text<'a>(value: &'a Value, key: &str, label: &str) -> Result<&'a str> {
@@ -109,18 +293,74 @@ pub fn prepare(root: &Path, run_id: &str) -> Result<Value> {
         "Initial votes are not ready."
     );
     let mut manifest = read_json(&manifest_file)?;
-    let mut personas = PERSONAS;
-    personas.shuffle(&mut rand::rng());
-    let mut mapping = Map::new();
-    let mut candidates = Vec::new();
-    for (candidate, persona) in CANDIDATES.iter().zip(personas) {
-        mapping.insert((*candidate).to_owned(), Value::String(persona.to_owned()));
+    let mut initial_votes = Map::new();
+    for persona in PERSONAS {
         let vote = read_json(
             &run_dir
                 .join("rounds/initial/sealed")
                 .join(format!("{persona}.json")),
         )?;
         validate_vote(&vote, Some(persona))?;
+        ensure!(
+            manifest
+                .pointer(&format!("/rounds/initial/{persona}/sha256"))
+                .and_then(Value::as_str)
+                == Some(&sha256_value(&vote)?),
+            "Initial vote hash mismatch: {persona}"
+        );
+        initial_votes.insert(persona.to_owned(), vote);
+    }
+    let analysis = analyze_votes(&request, &initial_votes)?;
+    fs::create_dir_all(run_dir.join("adversarial"))?;
+    atomic_write_json(
+        &run_dir.join("adversarial/review-analysis.json"),
+        &analysis,
+        0o600,
+    )?;
+    let analysis_hash = sha256_value(&analysis)?;
+    manifest["adversarial"]["reviewAnalysisSha256"] = Value::String(analysis_hash.clone());
+
+    if mode(&request) == "auto" && analysis["reviewRequired"] == false {
+        request["status"] = Value::String("ready".to_owned());
+        atomic_write_json(&manifest_file, &manifest, 0o600)?;
+        atomic_write_json(&request_file, &request, 0o600)?;
+        return Ok(json!({
+            "prepared": false,
+            "reviewRequired": false,
+            "runId": run_id,
+            "status": "ready",
+            "reviewAnalysisSha256": analysis_hash,
+            "receipt": format!("REVIEW_NOT_REQUIRED run={run_id} sha256={}", &analysis_hash[..16])
+        }));
+    }
+    if mode(&request) == "auto"
+        && request
+            .pointer("/adversarialReview/thomasAvailable")
+            .and_then(Value::as_bool)
+            == Some(false)
+    {
+        request["status"] = Value::String("suspended_for_human_review".to_owned());
+        manifest["adversarial"]["suspensionReason"] =
+            Value::String("thomas_unavailable".to_owned());
+        atomic_write_json(&manifest_file, &manifest, 0o600)?;
+        atomic_write_json(&request_file, &request, 0o600)?;
+        return Ok(json!({
+            "prepared": false,
+            "reviewRequired": true,
+            "runId": run_id,
+            "status": "suspended_for_human_review",
+            "reason": "thomas_unavailable",
+            "reviewAnalysisSha256": analysis_hash,
+            "receipt": format!("REVIEW_SUSPENDED run={run_id} sha256={}", &analysis_hash[..16])
+        }));
+    }
+    let mut personas = PERSONAS;
+    personas.shuffle(&mut rand::rng());
+    let mut mapping = Map::new();
+    let mut candidates = Vec::new();
+    for (candidate, persona) in CANDIDATES.iter().zip(personas) {
+        mapping.insert((*candidate).to_owned(), Value::String(persona.to_owned()));
+        let vote = &initial_votes[persona];
         candidates.push(json!({
             "candidate": candidate,
             "decision": vote["decision"], "confidence": vote["confidence"], "summary": vote["summary"],
@@ -136,9 +376,9 @@ pub fn prepare(root: &Path, run_id: &str) -> Result<Value> {
             "maxChallengesPerCandidate": request.pointer("/adversarialReview/maxChallengesPerCandidate").and_then(Value::as_u64).unwrap_or(5),
             "requireFalsificationTest": request.pointer("/adversarialReview/requireFalsificationTest").and_then(Value::as_bool).unwrap_or(true)
         },
+        "reviewTriggers": analysis["triggers"],
         "candidates": candidates
     });
-    fs::create_dir_all(run_dir.join("adversarial"))?;
     atomic_write_json(
         &run_dir.join("adversarial/mapping.json"),
         &mapping_value,
@@ -147,6 +387,7 @@ pub fn prepare(root: &Path, run_id: &str) -> Result<Value> {
     atomic_write_json(&run_dir.join("adversarial/input.json"), &input, 0o600)?;
     let input_hash = sha256_value(&input)?;
     manifest["adversarial"] = json!({
+        "reviewAnalysisSha256": analysis_hash,
         "mappingSha256": sha256_value(&mapping_value)?, "inputSha256": input_hash, "challengesSha256": null
     });
     request["status"] = Value::String("challenging".to_owned());
@@ -407,6 +648,182 @@ pub fn challenge_resolution(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn review_request(domains: Value) -> Value {
+        json!({
+            "schemaVersion": "1.2", "runId": "magi-20260805120000-abcdef123456",
+            "adversarialReview": {"mode": "auto", "enabled": true},
+            "riskProfile": {"highRiskDomains": domains}
+        })
+    }
+
+    fn review_vote(
+        persona: &str,
+        decision: &str,
+        evidence_ids: &[&str],
+        impact: &str,
+        critical_refs: Option<Value>,
+    ) -> Value {
+        let evidence = evidence_ids
+            .iter()
+            .map(|id| {
+                json!({
+                    "id": id, "type": "file", "claim": format!("Claim for {id}"),
+                    "observedAt": "2026-08-14T00:00:00Z", "path": format!("src/{id}.rs")
+                })
+            })
+            .collect::<Vec<_>>();
+        let assessments = evidence_ids
+            .iter()
+            .map(|id| json!({"evidenceRef": id, "impact": impact}))
+            .collect::<Vec<_>>();
+        let risks = critical_refs.map_or_else(Vec::new, |refs| {
+            vec![json!({
+                "severity": "critical", "statement": "Critical risk",
+                "mitigated": false, "evidenceRefs": refs
+            })]
+        });
+        json!({
+            "schemaVersion": "1.2", "runId": "magi-20260805120000-abcdef123456",
+            "persona": persona, "decision": decision, "confidence": 80,
+            "summary": "Summary", "reasons": [{"code": "R1", "statement": "Reason", "evidence": evidence}],
+            "conditions": [], "risks": risks, "assumptions": [],
+            "evidenceAssessments": assessments, "memoryCandidates": []
+        })
+    }
+
+    fn votes(items: [Value; 3]) -> Map<String, Value> {
+        PERSONAS
+            .into_iter()
+            .zip(items)
+            .map(|(persona, vote)| (persona.to_owned(), vote))
+            .collect()
+    }
+
+    #[test]
+    fn unanimous_votes_without_risk_do_not_trigger_auto_review() {
+        let votes = votes([
+            review_vote(
+                "melchior",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            review_vote(
+                "balthasar",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            review_vote(
+                "casper",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+        ]);
+        let analysis = analyze_votes(&review_request(json!([])), &votes).unwrap();
+        assert_eq!(analysis["triggers"], json!([]));
+        assert_eq!(analysis["reviewRequired"], false);
+    }
+
+    #[test]
+    fn detects_split_minority_unique_evidence_and_conflicting_impact() {
+        let votes = votes([
+            review_vote(
+                "melchior",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            review_vote(
+                "balthasar",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            review_vote(
+                "casper",
+                "reject",
+                &["ev-shared", "ev-minority"],
+                "supports_reject",
+                None,
+            ),
+        ]);
+        let analysis = analyze_votes(&review_request(json!([])), &votes).unwrap();
+        let kinds = analysis["triggers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|trigger| trigger["type"].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            kinds,
+            [
+                "split_vote",
+                "minority_unique_evidence",
+                "evidence_conflict"
+            ]
+        );
+        assert_eq!(analysis["reviewRequired"], true);
+    }
+
+    #[test]
+    fn supported_critical_veto_precedes_auto_review() {
+        let votes = votes([
+            review_vote(
+                "melchior",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            review_vote(
+                "balthasar",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            review_vote(
+                "casper",
+                "reject",
+                &["ev-critical"],
+                "supports_reject",
+                Some(json!(["ev-critical"])),
+            ),
+        ]);
+        let analysis = analyze_votes(&review_request(json!([])), &votes).unwrap();
+        assert_eq!(
+            analysis["supportedCriticalEvidenceIds"],
+            json!(["ev-critical"])
+        );
+        assert_eq!(analysis["reviewRequired"], false);
+    }
+
+    #[test]
+    fn unsupported_critical_and_explicit_high_risk_trigger_review() {
+        let votes = votes([
+            review_vote("melchior", "approve", &[], "uncertain", None),
+            review_vote("balthasar", "approve", &[], "uncertain", None),
+            review_vote("casper", "reject", &[], "uncertain", Some(json!([]))),
+        ]);
+        let analysis = analyze_votes(&review_request(json!(["healthcare"])), &votes).unwrap();
+        let kinds = analysis["triggers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|trigger| trigger["type"].as_str())
+            .collect::<Vec<_>>();
+        assert!(kinds.contains(&"unsupported_critical"));
+        assert!(kinds.contains(&"explicit_high_risk"));
+        assert_eq!(analysis["evidenceSufficiency"], "traceable_locator_only");
+    }
 
     #[test]
     fn rejects_unknown_challenge_enums() {

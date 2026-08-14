@@ -52,11 +52,12 @@ Security rules:
 - `persona` must be `casper`.
 - Copy the supplied run ID exactly.
 - Evidence may be incomplete; use assumptions, conditions, abstention, or lower confidence instead of fabricating facts.
+- Classify each evidence ID in evidenceAssessments. Every risk evidenceRefs value must resolve to evidence defined in the same vote; use an empty array for an unsupported risk.
 
 Required shape:
 
 {
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "runId": "magi-...",
   "persona": "casper",
   "decision": "approve | reject | abstain",
@@ -64,8 +65,9 @@ Required shape:
   "summary": "...",
   "reasons": [{"code": "...", "statement": "...", "evidence": [{"id": "ev-file-auth", "type": "file", "claim": "...", "observedAt": "2026-08-14T00:00:00Z", "path": "src/auth.rs", "lineStart": 10, "lineEnd": 24, "commitSha": "abcdef1"}]}],
   "conditions": [],
-  "risks": [{"severity": "low | medium | high | critical", "statement": "...", "mitigated": false, "mitigation": "..."}],
+  "risks": [{"severity": "low | medium | high | critical", "statement": "...", "mitigated": false, "mitigation": "...", "evidenceRefs": ["ev-file-auth"]}],
   "assumptions": [],
+  "evidenceAssessments": [{"evidenceRef": "ev-file-auth", "impact": "supports_approve | supports_reject | uncertain"}],
   "memoryCandidates": []
 }
 

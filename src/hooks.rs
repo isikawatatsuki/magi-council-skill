@@ -370,7 +370,7 @@ fn protected_patterns() -> Result<(Vec<Regex>, Vec<Regex>)> {
             r"{state}/runs/[^/]+/rounds/(?:initial|final)/sealed(?:/|\b)"
         ))?,
         Regex::new(&format!(
-            r"{state}/runs/[^/]+/adversarial/(?:input|mapping|challenges)\.json"
+            r"{state}/runs/[^/]+/adversarial/(?:input|mapping|challenges|review-analysis)\.json"
         ))?,
         Regex::new(&format!(r"{state}/runs/[^/]+/manifest\.json"))?,
         Regex::new(&format!(r"{state}/memory/personas(?:/|\b)"))?,
@@ -475,7 +475,7 @@ pub fn redact_tool_result(input: &Value) -> Result<Value> {
         .unwrap_or_else(|| flatten(&payload.tool_result));
     let state = format!(r"{}magi", r"\.");
     let sensitive = Regex::new(&format!(
-        r#"(?i){state}/runs/[^\s"']+/(?:sealed|rounds/(?:initial|final)/sealed|adversarial/(?:input|mapping|challenges)\.json|manifest\.json)|{state}/memory/personas"#
+        r#"(?i){state}/runs/[^\s"']+/(?:sealed|rounds/(?:initial|final)/sealed|adversarial/(?:input|mapping|challenges|review-analysis)\.json|manifest\.json)|{state}/memory/personas"#
     ))?;
     if !sensitive.is_match(&result.replace('\\', "/")) {
         return Ok(json!({}));
