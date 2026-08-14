@@ -24,13 +24,13 @@ user-invocable: false
 
 ```json
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "runId": "magi-...",
   "persona": "casper",
   "decision": "approve | reject | abstain",
   "confidence": 0,
   "summary": "...",
-  "reasons": [{"code": "...", "statement": "...", "evidence": []}],
+  "reasons": [{"code": "...", "statement": "...", "evidence": [{"id": "ev-file-auth", "type": "file", "claim": "...", "observedAt": "2026-08-14T00:00:00Z", "path": "src/auth.rs", "lineStart": 10, "lineEnd": 24, "commitSha": "abcdef1"}]}],
   "conditions": [],
   "risks": [{"severity": "low | medium | high | critical", "statement": "...", "mitigated": false, "mitigation": "..."}],
   "assumptions": [],

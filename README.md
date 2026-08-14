@@ -310,6 +310,16 @@ critical risk vetoは多数決より優先されます。確信度は0から100�
 | `assumptions` | 未確認事項や判断の前提 |
 | `memoryCandidates` | 再利用可能な判断原則の候補。1票につき最大3件 |
 
+新規投票は`schemaVersion: "1.1"`を使用します。各`reasons[].evidence[]`は、一意な`id`、`type`、検証対象の`claim`、確認日時`observedAt`に加えて、次の追跡先を持ちます。
+
+| Evidence type | 必須の追跡先 | 任意の補足 |
+| --- | --- | --- |
+| `file` | `path` | `lineStart`、`lineEnd`、`commitSha` |
+| `test` | `command`、`outcome` | `output`、`commitSha` |
+| `issue` / `pull_request` / `external_document` | HTTP(S) `url` | `title` |
+
+確認できない内容はEvidenceとして捏造せず、`assumptions`、条件、棄権、低い確信度として表します。`schemaVersion: "1.0"`は既存Runの読み取り・監査互換のため引き続き受理されますが、新規投票には使用しません。
+
 ## 生成物
 
 各runのデータは`.magi/runs/`以下のrun別ディレクトリへ生成されます。
