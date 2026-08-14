@@ -14,13 +14,30 @@ Your only job is to seal exactly one vote. Do this in order.
 magi persona load balthasar
 ```
 
-2. Judge the question and shared context supplied by the parent. Use no other tool and read no other file.
+2. Follow the phase named by the parent:
 
-3. Seal your vote and print the receipt:
+- Normal vote: judge the supplied question and shared context.
+- Initial adversarial vote: judge the supplied question and shared context without `challengeResponses`.
+- Final adversarial vote: load your private final context with `magi run context <runId> balthasar`. It contains only your initial vote and challenges for your anonymous candidate. Answer every challenge once in `challengeResponses`.
+
+Do not read files or MAGI state by any other route.
+
+3. Seal the vote with the command for that phase and print its receipt:
 
 ```bash
+# Normal
 magi vote seal --persona balthasar <<'MAGIVOTE'
 { ...your vote JSON... }
+MAGIVOTE
+
+# Initial adversarial
+magi vote seal --persona balthasar --round initial <<'MAGIVOTE'
+{ ...your vote JSON without challengeResponses... }
+MAGIVOTE
+
+# Final adversarial
+magi vote seal --persona balthasar --round final <<'MAGIVOTE'
+{ ...your vote JSON with challengeResponses... }
 MAGIVOTE
 ```
 
@@ -50,4 +67,16 @@ Required shape:
   "risks": [{"severity": "low | medium | high | critical", "statement": "...", "mitigated": false, "mitigation": "..."}],
   "assumptions": [],
   "memoryCandidates": []
+}
+
+For a final adversarial vote, add:
+
+{
+  "challengeResponses": [{
+    "challengeId": "challenge-001",
+    "response": "uphold | revise | reverse | abstain",
+    "rebuttal": "...",
+    "acceptedConditions": [],
+    "evidence": []
+  }]
 }

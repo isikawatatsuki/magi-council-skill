@@ -1,10 +1,13 @@
-use crate::adversarial::{context_for, seal_challenges, seal_round_vote, validate_challenges};
+use crate::adversarial::{
+    context_for, enabled as adversarial_enabled, seal_challenges, seal_round_vote,
+    validate_challenges,
+};
 use crate::core::{
-    Agent, PERSONAS, agent_for_name, build_persona_context, extract_json_object, find_repo_root,
+    Agent, agent_for_name, build_persona_context, extract_json_object, find_repo_root,
     normalize_hook_payload, read_json, read_last_assistant_message, run_dir_for, seal_vote,
     state_dir, validate_vote,
 };
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use regex::Regex;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -232,9 +235,6 @@ pub fn subagent_stop(input: &Value) -> Result<Value> {
 }
 
 pub fn claude_subagent_stop(input: &Value) -> Result<Value> {
-    if input.get("stop_hook_active").and_then(Value::as_bool) == Some(true) {
-        return Ok(json!({}));
-    }
     let payload = normalize_hook_payload(input)?;
     let message = payload
         .response
@@ -242,12 +242,13 @@ pub fn claude_subagent_stop(input: &Value) -> Result<Value> {
     if message.is_empty() {
         return Ok(json!({}));
     }
-    let receipt_pattern =
-        Regex::new(r"(?i)VOTE_SEALED\s+run=(magi-[a-z0-9-]+)\s+sha256=([0-9a-f]{16})")?;
     let vote_pattern = Regex::new(r#""persona"\s*:\s*"(melchior|balthasar|casper)""#)?;
-    let receipt = receipt_pattern.captures(&message);
+    let challenge_pattern = Regex::new(r#""challenges"\s*:"#)?;
+    let receipt_pattern = Regex::new(r"(?i)(?:VOTE_SEALED|CHALLENGES_SEALED)")?;
     let looks_like_vote = vote_pattern.is_match(&message);
-    if receipt.is_none() && !looks_like_vote {
+    let looks_like_challenges = challenge_pattern.is_match(&message);
+    let looks_like_receipt = receipt_pattern.is_match(&message);
+    if !looks_like_receipt && !looks_like_vote && !looks_like_challenges {
         return Ok(json!({}));
     }
     let root = match find_repo_root(Some(&payload.cwd)) {
@@ -258,6 +259,49 @@ pub fn claude_subagent_stop(input: &Value) -> Result<Value> {
             )));
         }
     };
+    if looks_like_receipt {
+        let verified = [
+            Agent::Persona("melchior"),
+            Agent::Persona("balthasar"),
+            Agent::Persona("casper"),
+            Agent::Thomas,
+        ]
+        .into_iter()
+        .any(|agent| receipt_matches(&root, &message, agent).unwrap_or(false));
+        return if verified {
+            Ok(json!({}))
+        } else {
+            Ok(blocked(
+                "The MAGI receipt does not match sealed state. Return the exact receipt printed by the reviewed magi command.",
+            ))
+        };
+    }
+    if looks_like_challenges && !looks_like_vote {
+        let challenges = match extract_json_object(&message) {
+            Ok(value) => value,
+            Err(error) => {
+                return Ok(blocked(format!(
+                    "THOMAS challenges were rejected: {error} Return valid challenge JSON to magi thomas seal."
+                )));
+            }
+        };
+        let run_id = challenges
+            .get("runId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if let Err(error) = validate_challenges(&challenges, run_id, true) {
+            return Ok(blocked(format!(
+                "THOMAS challenges were rejected: {error} Return valid challenge JSON to magi thomas seal."
+            )));
+        }
+        return match seal_challenges(&root, &challenges, payload.agent_id.as_deref()) {
+            Ok(sealed) => Ok(blocked(format!(
+                "Challenges are sealed. Reply with exactly this receipt and nothing else: {}",
+                sealed["receipt"].as_str().unwrap_or_default()
+            ))),
+            Err(error) => Ok(blocked(format!("MAGI challenge sealing failed: {error}"))),
+        };
+    }
     if looks_like_vote {
         let vote = match extract_json_object(&message).and_then(|vote| {
             validate_vote(&vote, None)?;
@@ -271,35 +315,36 @@ pub fn claude_subagent_stop(input: &Value) -> Result<Value> {
             }
         };
         let persona = vote["persona"].as_str().unwrap_or_default();
-        if let Err(error) = seal_vote(&root, persona, &vote, payload.agent_id.as_deref()) {
-            return Ok(blocked(format!(
-                "MAGI sealing failed: {error} Fix the vote, pipe it to the MAGI vote seal command, and return only the receipt line."
-            )));
-        }
-        return Ok(blocked(
-            "Your vote body must never reach the parent agent. It has been sealed for you. Reply with the single receipt line printed by the MAGI vote seal command and nothing else.",
-        ));
-    }
-    let captures = receipt.ok_or_else(|| anyhow!("receipt capture is missing"))?;
-    let run_id = &captures[1];
-    let short_hash = captures[2].to_lowercase();
-    let manifest_file = run_dir_for(&root, run_id)?.join("manifest.json");
-    if !manifest_file.exists() {
-        return Ok(blocked(format!(
-            "No MAGI run named {run_id} exists. Seal your vote with the MAGI vote seal command before finishing."
-        )));
-    }
-    let manifest = read_json(&manifest_file)?;
-    let matched = PERSONAS.iter().any(|persona| {
-        manifest
-            .pointer(&format!("/votes/{persona}/sha256"))
-            .and_then(Value::as_str)
-            .is_some_and(|hash| hash.starts_with(&short_hash))
-    });
-    if !matched {
-        return Ok(blocked(format!(
-            "No sealed vote in run {run_id} matches that receipt. Pipe your vote JSON to the MAGI vote seal command and return the receipt it prints."
-        )));
+        let run_id = vote["runId"].as_str().unwrap_or_default();
+        let request = match read_json(&run_dir_for(&root, run_id)?.join("request.json")) {
+            Ok(request) => request,
+            Err(error) => return Ok(blocked(format!("MAGI sealing failed: {error}"))),
+        };
+        let receipt = if adversarial_enabled(&request) {
+            let round = match request.get("status").and_then(Value::as_str) {
+                Some("collecting_initial" | "initial_ready") => "initial",
+                Some("collecting_final" | "final_ready") => "final",
+                Some(status) => {
+                    return Ok(blocked(format!(
+                        "Run state does not accept a persona vote: {status}"
+                    )));
+                }
+                None => return Ok(blocked("Run status is missing.")),
+            };
+            seal_round_vote(&root, persona, round, &vote, payload.agent_id.as_deref())
+                .map(|sealed| sealed["receipt"].as_str().unwrap_or_default().to_owned())
+        } else {
+            seal_vote(&root, persona, &vote, payload.agent_id.as_deref())
+                .map(|sealed| sealed.receipt)
+        };
+        return match receipt {
+            Ok(receipt) => Ok(blocked(format!(
+                "Your vote body must never reach the parent agent. Vote is sealed. Reply with exactly this receipt and nothing else: {receipt}"
+            ))),
+            Err(error) => Ok(blocked(format!(
+                "MAGI sealing failed: {error} Fix the vote, seal it with the reviewed magi command, and return only its receipt."
+            ))),
+        };
     }
     Ok(json!({}))
 }

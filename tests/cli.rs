@@ -321,12 +321,32 @@ fn adversarial_review_seals_two_rounds_and_tallies_only_final_votes() {
     );
     let run_id = created["runId"].as_str().unwrap();
     for persona in ["melchior", "balthasar", "casper"] {
-        output_json(
+        let sealed = output_json(
             magi(project.path())
                 .args(["vote", "seal", "--persona", persona, "--round", "initial"])
                 .write_stdin(vote(run_id, persona, "reject", json!([])).to_string()),
         );
+        let accepted = output_json(
+            magi(project.path())
+                .args(["hook", "claude-subagent-stop"])
+                .write_stdin(json!({"response": sealed["receipt"]}).to_string()),
+        );
+        assert_eq!(accepted, json!({}));
     }
+    let mut premature_final = vote(run_id, "melchior", "approve", json!([]));
+    premature_final["challengeResponses"] = json!([]);
+    let premature = output_json(
+        magi(project.path())
+            .args(["hook", "claude-subagent-stop"])
+            .write_stdin(json!({"response": premature_final.to_string()}).to_string()),
+    );
+    assert_eq!(premature["decision"], "block");
+    assert!(
+        premature["reason"]
+            .as_str()
+            .unwrap()
+            .contains("Initial vote must not include challengeResponses")
+    );
     let prepared = output_json(magi(project.path()).args(["run", "prepare-adversarial", run_id]));
     assert_eq!(prepared["prepared"], true);
     assert_eq!(prepared["candidateCount"], 3);
@@ -399,6 +419,12 @@ fn adversarial_review_seals_two_rounds_and_tallies_only_final_votes() {
             ),
     );
     assert_eq!(thomas_accepted, json!({}));
+    let claude_thomas_accepted = output_json(
+        magi(project.path())
+            .args(["hook", "claude-subagent-stop"])
+            .write_stdin(json!({"response": thomas_receipt}).to_string()),
+    );
+    assert_eq!(claude_thomas_accepted, json!({}));
 
     let final_context = output_json(
         magi(project.path())
@@ -462,11 +488,17 @@ fn adversarial_review_seals_two_rounds_and_tallies_only_final_votes() {
             );
             assert_eq!(accepted, json!({}));
         } else {
-            output_json(
+            let sealed = output_json(
                 magi(project.path())
                     .args(["vote", "seal", "--persona", persona, "--round", "final"])
                     .write_stdin(final_vote.to_string()),
             );
+            let accepted = output_json(
+                magi(project.path())
+                    .args(["hook", "claude-subagent-stop"])
+                    .write_stdin(json!({"response": sealed["receipt"]}).to_string()),
+            );
+            assert_eq!(accepted, json!({}));
         }
     }
     let decision = output_json(magi(project.path()).args(["run", "tally", run_id]));
