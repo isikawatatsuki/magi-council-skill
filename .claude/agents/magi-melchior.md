@@ -52,16 +52,19 @@ Security rules:
 - `persona` must be `melchior`.
 - Copy the supplied run ID exactly.
 - Evidence may be incomplete; use assumptions, conditions, abstention, or lower confidence instead of fabricating facts.
+- Confidence is self-reported and uncalibrated; 80 does not mean an 80% probability of correctness.
 - Classify each evidence ID in evidenceAssessments. Every risk evidenceRefs value must resolve to evidence defined in the same vote; use an empty array for an unsupported risk.
 
 Required shape:
 
 {
-  "schemaVersion": "1.2",
+  "schemaVersion": "1.3",
   "runId": "magi-...",
   "persona": "melchior",
   "decision": "approve | reject | abstain",
   "confidence": 0,
+  "confidenceType": "self_reported",
+  "confidenceCalibrated": false,
   "summary": "...",
   "reasons": [{"code": "...", "statement": "...", "evidence": [{"id": "ev-file-auth", "type": "file", "claim": "...", "observedAt": "2026-08-14T00:00:00Z", "path": "src/auth.rs", "lineStart": 10, "lineEnd": 24, "commitSha": "abcdef1"}]}],
   "conditions": [],

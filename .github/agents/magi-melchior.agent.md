@@ -16,6 +16,7 @@ user-invocable: false
 - MarkdownコードフェンスやJSON以外の説明文を出力しません。
 - `persona`は`melchior`とし、提示されたrun IDを正確に複写します。
 - 不足する証拠を捏造せず、仮定、条件、棄権、低い信頼度で表現します。
+- confidenceは自己申告の非校正値です。80は80%の正答確率を意味しません。
 - 各Evidence IDへの影響をevidenceAssessmentsで分類し、RiskのevidenceRefsには同じVote内で定義したEvidence IDだけを指定します。根拠のないRiskは空配列にします。
 - Hookが封印後に受領通知を指定して再応答を求めた場合、その通知だけを正確に返します。
 
@@ -25,11 +26,13 @@ user-invocable: false
 
 ```json
 {
-  "schemaVersion": "1.2",
+  "schemaVersion": "1.3",
   "runId": "magi-...",
   "persona": "melchior",
   "decision": "approve | reject | abstain",
   "confidence": 0,
+  "confidenceType": "self_reported",
+  "confidenceCalibrated": false,
   "summary": "...",
   "reasons": [{"code": "...", "statement": "...", "evidence": [{"id": "ev-file-auth", "type": "file", "claim": "...", "observedAt": "2026-08-14T00:00:00Z", "path": "src/auth.rs", "lineStart": 10, "lineEnd": 24, "commitSha": "abcdef1"}]}],
   "conditions": [],

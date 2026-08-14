@@ -272,7 +272,7 @@ fn decision_markdown(decision: &Value) -> Result<String> {
             counts["approve"], counts["reject"], counts["abstain"]
         ),
         format!(
-            "- Confidence: min {}, median {}, max {}",
+            "- Self-reported confidence (uncalibrated; not a probability): min {}, median {}, max {}",
             confidence["min"], confidence["median"], confidence["max"]
         ),
         format!(
@@ -542,7 +542,7 @@ pub fn tally_votes(root: &Path, run_id: &str) -> Result<Value> {
                 && risk["mitigated"].as_bool() == Some(false)
             {
                 unmitigated_critical.push(with_persona(risk_object, persona));
-                let sufficient = vote["schemaVersion"] != "1.2"
+                let sufficient = !matches!(vote["schemaVersion"].as_str(), Some("1.2" | "1.3"))
                     || risk["evidenceRefs"]
                         .as_array()
                         .is_some_and(|refs| !refs.is_empty());
@@ -726,7 +726,11 @@ pub fn tally_votes(root: &Path, run_id: &str) -> Result<Value> {
         "executionMode": request["executionMode"],
         "decision": result,
         "voteCounts": {"approve": approve, "reject": reject, "abstain": abstain},
-        "confidence": {"min": confidences[0], "median": confidences[1], "max": confidences[2]},
+        "confidence": {
+            "type": "self_reported",
+            "calibrated": false,
+            "min": confidences[0], "median": confidences[1], "max": confidences[2]
+        },
         "veto": {
             "enabled": veto_enabled,
             "applied": veto_applied,

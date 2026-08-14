@@ -126,8 +126,9 @@ fn structured_vote(
         })]
     });
     json!({
-        "schemaVersion": "1.2", "runId": run_id, "persona": persona,
+        "schemaVersion": "1.3", "runId": run_id, "persona": persona,
         "decision": decision, "confidence": 80, "summary": format!("{persona} summary"),
+        "confidenceType": "self_reported", "confidenceCalibrated": false,
         "reasons": [{"code": "R1", "statement": "Reason", "evidence": evidence}],
         "conditions": [], "risks": risks, "assumptions": [],
         "evidenceAssessments": assessments, "memoryCandidates": []
@@ -190,6 +191,17 @@ fn creates_imports_tallies_and_audits_run() {
     let decision = output_json(magi(project.path()).args(["run", "tally", run_id]));
     assert_eq!(decision["decision"], "approved_with_conditions");
     assert_eq!(decision["voteCounts"]["approve"], 2);
+    assert_eq!(decision["confidence"]["type"], "self_reported");
+    assert_eq!(decision["confidence"]["calibrated"], false);
+    assert!(
+        fs::read_to_string(
+            project
+                .path()
+                .join(format!(".magi/runs/{run_id}/decision.md")),
+        )
+        .unwrap()
+        .contains("Self-reported confidence (uncalibrated; not a probability)")
+    );
 
     let candidate_id = decision["memoryCandidates"][0]["id"].as_str().unwrap();
     let approved = output_json(magi(project.path()).args([

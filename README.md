@@ -6,12 +6,23 @@
 
 [日本語](README.md) | [English](README.en.md)
 
-3つの独立したCustom Agentにそれぞれ判断させ、投票結果をもとに最終決定を行うAgent Skillテンプレートです。
+3つの分離されたSubagent Contextでそれぞれ判断させ、投票結果をもとに最終決定を行うAgent Skillテンプレートです。
 
 各Agentは、ほかのAgentの回答を見ない状態で投票します。
 投票内容はHookによって一時的に封印され、3票が揃った後にRust製の単一バイナリが決められたルールで採決します。
 
-単にAIへ「3つの人格で考えて」と依頼するのではなく、判断の独立性や再現性、監査のしやすさを重視した仕組みです。
+単にAIへ「3つの人格で考えて」と依頼するのではなく、Contextと投票情報の分離、決定論的な採決、記録の監査を重視した仕組みです。
+
+## 保証範囲と既知の制約
+
+- 分離するのは対応Hostが作るSubagent Contextと投票情報です。異なるProvider、基盤Model、Process、OS権限を自動的に保証するものではありません。同じまたは類似Modelを使う3人格は、同じ見落としを相関して起こせます。
+- 多数決は定めたVoteからResultを一意に計算しますが、結論の正しさや安全性を証明しません。`approved`は、今回の入力と規則でBlocking Evidenceが残らなかったことを表します。
+- Confidenceは自己申告・非校正値です。80は80%の正答確率ではありません。
+- SHA-256とManifestは、信頼するCLI・Hook・Manifestが維持される場合に保存後の欠落や変更を検知します。同じOS Userや管理者がArtifactとHashを両方置換することは防げず、署名や作成者証明でもありません。
+- 再現可能なのは、保存した入力、Protocol/Schema、決定論的な採決規則、Result、監査手順です。Model出力はProvider、Model Version、Sampling、Contextなどにより変化し、再実行時の完全一致を保証しません。
+- `sealed-subagents`の論理分離はCustom Agent/Subagent、必須Hook、Vote本文の非公開をHostが実際に提供する場合だけ成立します。`inline`には秘密投票や独立Contextの保証がありません。
+
+攻撃者、CLI/Hook/Host/File System/管理者の信頼境界、防止・検知できない操作、高保証構成は[Threat Model](docs/THREAT_MODEL.md)を参照してください。
 
 ## 質問から回答まで
 
@@ -266,7 +277,7 @@ created -> collecting -> ready -> finalized
 | 上記のいずれにも該当しない | `undecided` |
 | 拒否権が有効で、未緩和の`critical`リスクが1件以上ある | `rejected_by_veto` |
 
-critical risk vetoは多数決より優先されます。確信度は0から100の整数ですが、確率を意味しません。意見の差を平均で隠さないため、最終結果には最小値、中央値、最大値を記録します。
+critical risk vetoは多数決より優先されます。ConfidenceはPersonaが自己申告する0から100の非校正値であり、80は80%の正答確率を意味しません。意見の差を平均で隠さないため、最終結果には最小値、中央値、最大値と`type: self_reported`、`calibrated: false`を記録します。
 
 ## 設定
 
@@ -313,14 +324,14 @@ critical risk vetoは多数決より優先されます。確信度は0から100�
 | --- | --- |
 | `runId` / `persona` | 対象runと投票人格 |
 | `decision` | `approve`、`reject`、`abstain`のいずれか |
-| `confidence` | 0から100の整数 |
+| `confidence` | 0から100の自己申告・非校正値。正答確率ではない |
 | `summary` / `reasons` | 判定要約と、根拠を含む理由 |
 | `conditions` | 承認に必要な条件 |
 | `risks` | 重大度、緩和済みか、緩和策を含むリスク |
 | `assumptions` | 未確認事項や判断の前提 |
 | `memoryCandidates` | 再利用可能な判断原則の候補。1票につき最大3件 |
 
-新規投票は`schemaVersion: "1.2"`を使用します。各`reasons[].evidence[]`は、一意な`id`、`type`、検証対象の`claim`、確認日時`observedAt`に加えて、次の追跡先を持ちます。Riskは`evidenceRefs`で同じVote内のIDを参照し、`evidenceAssessments`は各IDを`supports_approve`、`supports_reject`、`uncertain`として分類します。
+新規投票は`schemaVersion: "1.3"`を使用します。各`reasons[].evidence[]`は、一意な`id`、`type`、検証対象の`claim`、確認日時`observedAt`に加えて、次の追跡先を持ちます。Riskは`evidenceRefs`で同じVote内のIDを参照し、`evidenceAssessments`は各IDを`supports_approve`、`supports_reject`、`uncertain`として分類します。
 
 | Evidence type | 必須の追跡先 | 任意の補足 |
 | --- | --- | --- |
@@ -328,7 +339,7 @@ critical risk vetoは多数決より優先されます。確信度は0から100�
 | `test` | `command`、`outcome` | `output`、`commitSha` |
 | `issue` / `pull_request` / `external_document` | HTTP(S) `url` | `title` |
 
-確認できない内容はEvidenceとして捏造せず、`assumptions`、条件、棄権、低い確信度として表します。`schemaVersion: "1.0"`と`"1.1"`は既存Runの読み取り・監査互換のため引き続き受理されますが、新規投票には使用しません。
+確認できない内容はEvidenceとして捏造せず、`assumptions`、条件、棄権、低い確信度として表します。`schemaVersion: "1.0"`、`"1.1"`、`"1.2"`は既存Runの読み取り・監査互換のため引き続き受理されますが、新規投票には使用しません。
 
 ## 生成物
 
@@ -458,7 +469,7 @@ MAGI Councilでは、意思決定に必要な観点を次の3つに分離して�
 * **BALTHASAR：人とサービスを守れるか**
 * **CASPER：現実に価値を生み出せるか**
 
-3つの人格が同じ質問と情報を受け取り、それぞれ独立して判断することで、1つの価値観へ偏った結論を防ぎます。
+3つの人格が同じ質問と情報を分離されたContextで評価することで、先行Voteへの直接的な同調を減らします。ただし、同一または類似Modelが共有する見落としや価値観の偏りをなくすものではありません。
 
 この人格設定は、原作の人格をそのまま再現するものではありません。
 
@@ -496,7 +507,8 @@ GitHub CopilotまたはClaude Codeで`magi-orchestrator`を使用すると、Pro
 ## 詳細仕様
 
 - [Council protocol](.agents/skills/magi-council/references/protocol.md): 状態遷移、投票、確信度、完全性
-- [Security model](.agents/skills/magi-council/references/security-model.md): 保護対象、防御層、限界
+- [Threat Model](docs/THREAT_MODEL.md): 正規の攻撃者・信頼境界・保証範囲・高保証構成
+- [Security model](.agents/skills/magi-council/references/security-model.md): Skill内で使う短い運用リファレンス
 - [Memory policy](.agents/skills/magi-council/references/memory-policy.md): 候補の要件、優先順位、保守方針
 - [Vote schema](.agents/skills/magi-council/schemas/vote.schema.json): 投票JSONの完全な制約
 - [Request schema](.agents/skills/magi-council/schemas/request.schema.json): request JSONの完全な制約

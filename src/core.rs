@@ -564,6 +564,8 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         "persona",
         "decision",
         "confidence",
+        "confidenceType",
+        "confidenceCalibrated",
         "summary",
         "reasons",
         "conditions",
@@ -576,8 +578,8 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
     allowed_fields(vote_object, &allowed, "vote")?;
     let schema_version = vote_object.get("schemaVersion").and_then(Value::as_str);
     ensure!(
-        matches!(schema_version, Some("1.0" | "1.1" | "1.2")),
-        "vote.schemaVersion must be 1.0, 1.1, or 1.2."
+        matches!(schema_version, Some("1.0" | "1.1" | "1.2" | "1.3")),
+        "vote.schemaVersion must be 1.0, 1.1, 1.2, or 1.3."
     );
     let run_id = string(required(vote, "runId", "vote")?, "runId", 20, 80)?;
     validate_run_id(run_id)?;
@@ -602,6 +604,16 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         confidence.is_some_and(|value| (0..=100).contains(&value)),
         "vote.confidence must be an integer from 0 to 100."
     );
+    if schema_version == Some("1.3") {
+        ensure!(
+            required(vote, "confidenceType", "vote")?.as_str() == Some("self_reported"),
+            "vote.confidenceType must be self_reported."
+        );
+        ensure!(
+            required(vote, "confidenceCalibrated", "vote")?.as_bool() == Some(false),
+            "vote.confidenceCalibrated must be false."
+        );
+    }
     string(required(vote, "summary", "vote")?, "vote.summary", 1, 2_000)?;
 
     let reasons = required(vote, "reasons", "vote")?
@@ -637,7 +649,7 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
             .as_array()
             .ok_or_else(|| anyhow!("{name}.evidence must be an array."))?;
         ensure!(evidence.len() <= 12, "{name}.evidence must be an array.");
-        if matches!(schema_version, Some("1.1" | "1.2")) {
+        if matches!(schema_version, Some("1.1" | "1.2" | "1.3")) {
             for (evidence_index, item) in evidence.iter().enumerate() {
                 validate_structured_evidence(item, &format!("{name}.evidence[{evidence_index}]"))?;
                 let evidence_id = item["id"].as_str().expect("validated evidence ID");
@@ -695,7 +707,7 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         if let Some(mitigation) = risk_object.get("mitigation") {
             string(mitigation, &format!("{name}.mitigation"), 1, 2_000)?;
         }
-        if schema_version == Some("1.2") {
+        if matches!(schema_version, Some("1.2" | "1.3")) {
             string_array(
                 required(risk, "evidenceRefs", &name)?,
                 &format!("{name}.evidenceRefs"),
@@ -719,7 +731,7 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         1_000,
     )?;
 
-    if schema_version == Some("1.2") {
+    if matches!(schema_version, Some("1.2" | "1.3")) {
         let assessments = required(vote, "evidenceAssessments", "vote")?
             .as_array()
             .ok_or_else(|| anyhow!("vote.evidenceAssessments must be an array."))?;
