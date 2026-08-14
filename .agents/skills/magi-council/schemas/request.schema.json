@@ -5,71 +5,54 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion",
-    "runId",
-    "createdAt",
-    "status",
-    "question",
-    "context",
-    "expectedPersonas",
-    "voting"
+    "schemaVersion", "runId", "createdAt", "status", "question", "context",
+    "expectedPersonas", "voting"
   ],
   "properties": {
-    "schemaVersion": {
-      "const": "1.0"
-    },
-    "runId": {
-      "type": "string",
-      "pattern": "^magi-[a-z0-9-]{16,64}$"
-    },
-    "createdAt": {
-      "type": "string",
-      "format": "date-time"
-    },
+    "schemaVersion": { "enum": ["1.0", "1.1"] },
+    "runId": { "type": "string", "pattern": "^magi-[a-z0-9-]+$", "minLength": 20, "maxLength": 80 },
+    "createdAt": { "type": "string", "format": "date-time" },
     "status": {
       "enum": [
-        "collecting",
-        "ready",
-        "finalized",
-        "invalid"
+        "collecting", "ready", "collecting_initial", "initial_ready", "challenging",
+        "challenge_ready", "collecting_final", "final_ready", "finalized",
+        "suspended_for_human_review", "invalid"
       ]
     },
-    "question": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 10000
-    },
-    "context": {
-      "type": "object"
-    },
-    "expectedPersonas": {
-      "const": [
-        "melchior",
-        "balthasar",
-        "casper"
-      ]
-    },
-    "executionMode": {
-      "enum": [
-        "sealed-subagents",
-        "inline"
-      ]
-    },
+    "executionMode": { "enum": ["sealed-subagents", "inline"] },
+    "question": { "type": "string", "minLength": 1, "maxLength": 10000 },
+    "context": { "type": "object" },
+    "expectedPersonas": { "const": ["melchior", "balthasar", "casper"] },
     "voting": {
       "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "criticalRiskVeto"],
+      "properties": {
+        "method": { "const": "majority" },
+        "criticalRiskVeto": { "type": "boolean" }
+      }
+    },
+    "adversarialReview": {
+      "type": "object",
+      "additionalProperties": false,
       "required": [
-        "method",
-        "criticalRiskVeto"
+        "enabled", "anonymizePersonas", "maxChallengesPerCandidate", "minimumSeverity",
+        "requireFalsificationTest", "unresolvedCriticalAction"
       ],
       "properties": {
-        "method": {
-          "const": "majority"
-        },
-        "criticalRiskVeto": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false
+        "enabled": { "type": "boolean" },
+        "anonymizePersonas": { "const": true },
+        "maxChallengesPerCandidate": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "minimumSeverity": { "enum": ["low", "medium", "high", "critical"] },
+        "requireFalsificationTest": { "type": "boolean" },
+        "unresolvedCriticalAction": { "const": "human_review" }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "schemaVersion": { "const": "1.1" } }, "required": ["schemaVersion"] },
+      "then": { "required": ["executionMode", "adversarialReview"] }
+    }
+  ]
 }

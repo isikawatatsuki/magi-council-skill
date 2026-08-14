@@ -5,183 +5,131 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion",
-    "runId",
-    "persona",
-    "decision",
-    "confidence",
-    "summary",
-    "reasons",
-    "conditions",
-    "risks",
-    "assumptions",
-    "memoryCandidates"
+    "schemaVersion", "runId", "persona", "decision", "confidence", "summary",
+    "reasons", "conditions", "risks", "assumptions", "memoryCandidates"
   ],
   "properties": {
-    "schemaVersion": {
-      "const": "1.0"
-    },
-    "runId": {
-      "type": "string"
-    },
-    "persona": {
-      "enum": [
-        "melchior",
-        "balthasar",
-        "casper"
-      ]
-    },
-    "decision": {
-      "enum": [
-        "approve",
-        "reject",
-        "abstain"
-      ]
-    },
-    "confidence": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 100
-    },
-    "summary": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 2000
-    },
+    "schemaVersion": { "enum": ["1.0", "1.1"] },
+    "runId": { "type": "string", "pattern": "^magi-[a-z0-9-]+$", "minLength": 20, "maxLength": 80 },
+    "persona": { "enum": ["melchior", "balthasar", "casper"] },
+    "decision": { "enum": ["approve", "reject", "abstain"] },
+    "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
     "reasons": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 12,
+      "type": "array", "minItems": 1, "maxItems": 12,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "code",
-          "statement",
-          "evidence"
-        ],
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "statement", "evidence"],
         "properties": {
-          "code": {
-            "type": "string",
-            "pattern": "^[A-Z0-9_-]{2,40}$"
-          },
-          "statement": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
-          },
-          "evidence": {
-            "type": "array",
-            "maxItems": 12,
-            "items": {
-              "type": "object"
-            }
-          }
+          "code": { "type": "string", "pattern": "^[A-Z0-9_-]{2,40}$" },
+          "statement": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "evidence": { "type": "array", "maxItems": 12, "uniqueItems": true, "items": { "type": "object" } }
         }
       }
     },
-    "conditions": {
-      "type": "array",
-      "maxItems": 12,
-      "items": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 1000
-      }
-    },
+    "conditions": { "$ref": "#/$defs/shortStringArray" },
     "risks": {
-      "type": "array",
-      "maxItems": 12,
+      "type": "array", "maxItems": 12,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "severity",
-          "statement",
-          "mitigated"
-        ],
+        "type": "object", "additionalProperties": false,
+        "required": ["severity", "statement", "mitigated"],
         "properties": {
-          "severity": {
-            "enum": [
-              "low",
-              "medium",
-              "high",
-              "critical"
-            ]
-          },
-          "statement": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
-          },
-          "mitigated": {
-            "type": "boolean"
-          },
-          "mitigation": {
-            "type": "string",
-            "maxLength": 2000
-          }
+          "severity": { "enum": ["low", "medium", "high", "critical"] },
+          "statement": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "mitigated": { "type": "boolean" },
+          "mitigation": { "type": "string", "minLength": 1, "maxLength": 2000 }
         }
       }
     },
-    "assumptions": {
-      "type": "array",
-      "maxItems": 12,
+    "assumptions": { "$ref": "#/$defs/shortStringArray" },
+    "memoryCandidates": {
+      "type": "array", "maxItems": 3,
       "items": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 1000
+        "type": "object", "additionalProperties": false,
+        "required": ["principle", "scopes", "applicableWhen", "notApplicableWhen", "rationale"],
+        "properties": {
+          "principle": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "scopes": { "$ref": "#/$defs/requiredTagArray" },
+          "applicableWhen": { "$ref": "#/$defs/requiredTextArray" },
+          "notApplicableWhen": { "$ref": "#/$defs/textArray" },
+          "rationale": { "type": "string", "minLength": 1, "maxLength": 2000 }
+        }
       }
     },
-    "memoryCandidates": {
-      "type": "array",
-      "maxItems": 3,
+    "challengeResponses": {
+      "type": "array", "maxItems": 30,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "principle",
-          "scopes",
-          "applicableWhen",
-          "notApplicableWhen",
-          "rationale"
-        ],
+        "type": "object", "additionalProperties": false,
+        "required": ["challengeId", "response", "acceptedConditions", "evidence"],
         "properties": {
-          "principle": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 1000
-          },
-          "scopes": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 8,
+          "challengeId": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "response": { "enum": ["uphold", "revise", "reverse", "abstain"] },
+          "rebuttal": { "type": ["string", "null"], "minLength": 1, "maxLength": 2000 },
+          "acceptedConditions": { "$ref": "#/$defs/shortStringArray" },
+          "evidence": { "$ref": "#/$defs/shortStringArray" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "shortStringArray": { "type": "array", "maxItems": 12, "items": { "type": "string", "minLength": 1, "maxLength": 1000 } },
+    "requiredTagArray": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 100 } },
+    "requiredTextArray": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+    "textArray": { "type": "array", "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+    "structuredEvidence": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "type", "claim", "observedAt", "path"],
+          "properties": {
+            "id": { "$ref": "#/$defs/evidenceId" }, "type": { "const": "file" },
+            "claim": { "$ref": "#/$defs/claim" }, "observedAt": { "$ref": "#/$defs/observedAt" },
+            "path": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "lineStart": { "type": "integer", "minimum": 1 }, "lineEnd": { "type": "integer", "minimum": 1 },
+            "commitSha": { "$ref": "#/$defs/commitSha" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "type", "claim", "observedAt", "command", "outcome"],
+          "properties": {
+            "id": { "$ref": "#/$defs/evidenceId" }, "type": { "const": "test" },
+            "claim": { "$ref": "#/$defs/claim" }, "observedAt": { "$ref": "#/$defs/observedAt" },
+            "command": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "outcome": { "enum": ["passed", "failed", "not_run"] },
+            "output": { "type": "string", "minLength": 1, "maxLength": 4000 },
+            "commitSha": { "$ref": "#/$defs/commitSha" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "type", "claim", "observedAt", "url"],
+          "properties": {
+            "id": { "$ref": "#/$defs/evidenceId" }, "type": { "enum": ["issue", "pull_request", "external_document"] },
+            "claim": { "$ref": "#/$defs/claim" }, "observedAt": { "$ref": "#/$defs/observedAt" },
+            "url": { "type": "string", "format": "uri", "maxLength": 2000 },
+            "title": { "type": "string", "minLength": 1, "maxLength": 500 }
+          }
+        }
+      ]
+    },
+    "evidenceId": { "type": "string", "pattern": "^ev-[a-z0-9][a-z0-9._-]{1,63}$" },
+    "claim": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "observedAt": { "type": "string", "format": "date-time" },
+    "commitSha": { "type": "string", "pattern": "^[0-9a-fA-F]{7,64}$" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "schemaVersion": { "const": "1.1" } }, "required": ["schemaVersion"] },
+      "then": {
+        "properties": {
+          "reasons": {
             "items": {
-              "type": "string"
+              "properties": { "evidence": { "items": { "$ref": "#/$defs/structuredEvidence" } } }
             }
-          },
-          "applicableWhen": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 8,
-            "items": {
-              "type": "string"
-            }
-          },
-          "notApplicableWhen": {
-            "type": "array",
-            "maxItems": 8,
-            "items": {
-              "type": "string"
-            }
-          },
-          "rationale": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
           }
         }
       }
     }
-  }
+  ]
 }

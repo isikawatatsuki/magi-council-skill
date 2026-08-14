@@ -302,6 +302,16 @@ Votes are validated against `vote.schema.json`.
 | `assumptions` | Unverified facts or premises used in the judgment. |
 | `memoryCandidates` | Candidate reusable principles, limited to three per vote. |
 
+New votes use `schemaVersion: "1.1"`. Every `reasons[].evidence[]` item has a unique `id`, a `type`, the verifiable `claim`, an `observedAt` timestamp, and the following trace locator.
+
+| Evidence type | Required locator | Optional details |
+| --- | --- | --- |
+| `file` | `path` | `lineStart`, `lineEnd`, `commitSha` |
+| `test` | `command`, `outcome` | `output`, `commitSha` |
+| `issue` / `pull_request` / `external_document` | HTTP(S) `url` | `title` |
+
+Do not fabricate unavailable evidence; record it as an assumption, condition, abstention, or lower confidence instead. `schemaVersion: "1.0"` remains accepted for reading and auditing existing runs, but must not be used for new votes.
+
 ## Generated Artifacts
 
 Each run creates its own directory under the project state.

@@ -57,7 +57,7 @@ pub fn create_run(root: &Path, input: &Value) -> Result<Value> {
         "collecting"
     };
     let request = json!({
-        "schemaVersion": "1.0",
+        "schemaVersion": "1.1",
         "runId": run_id,
         "createdAt": created_at,
         "status": initial_status,

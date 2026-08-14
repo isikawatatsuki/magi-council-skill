@@ -1,10 +1,11 @@
 use crate::{hash_request, sha256_value};
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use atomic_write_file::OpenOptions;
-use chrono::{SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use rand::RngCore;
 use regex::Regex;
 use serde_json::{Map, Value, json};
+use std::collections::HashSet;
 use std::env;
 use std::fmt::Write as _;
 use std::fs;
@@ -212,6 +213,134 @@ fn string_array(
     Ok(())
 }
 
+fn allowed_fields(object: &Map<String, Value>, allowed: &[&str], name: &str) -> Result<()> {
+    for key in object.keys() {
+        ensure!(
+            allowed.contains(&key.as_str()),
+            "Unexpected {name} field: {key}"
+        );
+    }
+    Ok(())
+}
+
+fn validate_timestamp(value: &Value, name: &str) -> Result<()> {
+    let timestamp = string(value, name, 1, 100)?;
+    DateTime::parse_from_rfc3339(timestamp)
+        .map_err(|_| anyhow!("{name} must be an RFC 3339 date-time."))?;
+    Ok(())
+}
+
+fn validate_structured_evidence(value: &Value, name: &str) -> Result<()> {
+    let evidence = object(value, name)?;
+    let evidence_type = string(
+        required(value, "type", name)?,
+        &format!("{name}.type"),
+        1,
+        40,
+    )?;
+    let common = ["id", "type", "claim", "observedAt"];
+    let allowed = match evidence_type {
+        "file" => [
+            common.as_slice(),
+            &["path", "lineStart", "lineEnd", "commitSha"],
+        ]
+        .concat(),
+        "test" => [
+            common.as_slice(),
+            &["command", "outcome", "output", "commitSha"],
+        ]
+        .concat(),
+        "issue" | "pull_request" | "external_document" => {
+            [common.as_slice(), &["url", "title"]].concat()
+        }
+        _ => bail!("{name}.type is invalid."),
+    };
+    allowed_fields(evidence, &allowed, name)?;
+
+    let id = string(required(value, "id", name)?, &format!("{name}.id"), 4, 67)?;
+    ensure!(
+        Regex::new(r"^ev-[a-z0-9][a-z0-9._-]{1,63}$")?.is_match(id),
+        "{name}.id has an invalid format."
+    );
+    string(
+        required(value, "claim", name)?,
+        &format!("{name}.claim"),
+        1,
+        2_000,
+    )?;
+    validate_timestamp(
+        required(value, "observedAt", name)?,
+        &format!("{name}.observedAt"),
+    )?;
+
+    if evidence_type == "file" {
+        string(
+            required(value, "path", name)?,
+            &format!("{name}.path"),
+            1,
+            1_000,
+        )?;
+        let line_start = evidence
+            .get("lineStart")
+            .map(|line| {
+                line.as_u64()
+                    .filter(|line| *line >= 1)
+                    .ok_or_else(|| anyhow!("{name}.lineStart must be a positive integer."))
+            })
+            .transpose()?;
+        let line_end = evidence
+            .get("lineEnd")
+            .map(|line| {
+                line.as_u64()
+                    .filter(|line| *line >= 1)
+                    .ok_or_else(|| anyhow!("{name}.lineEnd must be a positive integer."))
+            })
+            .transpose()?;
+        if let (Some(start), Some(end)) = (line_start, line_end) {
+            ensure!(end >= start, "{name}.lineEnd must not precede lineStart.");
+        }
+    } else if evidence_type == "test" {
+        string(
+            required(value, "command", name)?,
+            &format!("{name}.command"),
+            1,
+            2_000,
+        )?;
+        ensure!(
+            matches!(
+                required(value, "outcome", name)?.as_str(),
+                Some("passed" | "failed" | "not_run")
+            ),
+            "{name}.outcome is invalid."
+        );
+        if let Some(output) = evidence.get("output") {
+            string(output, &format!("{name}.output"), 1, 4_000)?;
+        }
+    } else {
+        let url = string(
+            required(value, "url", name)?,
+            &format!("{name}.url"),
+            1,
+            2_000,
+        )?;
+        ensure!(
+            url.starts_with("https://") || url.starts_with("http://"),
+            "{name}.url must be an HTTP(S) URL."
+        );
+        if let Some(title) = evidence.get("title") {
+            string(title, &format!("{name}.title"), 1, 500)?;
+        }
+    }
+    if let Some(commit_sha) = evidence.get("commitSha") {
+        let commit_sha = string(commit_sha, &format!("{name}.commitSha"), 7, 64)?;
+        ensure!(
+            Regex::new(r"^[0-9a-fA-F]{7,64}$")?.is_match(commit_sha),
+            "{name}.commitSha is invalid."
+        );
+    }
+    Ok(())
+}
+
 pub fn validate_run_id(run_id: &str) -> Result<()> {
     let length = run_id.encode_utf16().count();
     ensure!((20..=80).contains(&length), "runId length is invalid.");
@@ -224,12 +353,33 @@ pub fn validate_run_id(run_id: &str) -> Result<()> {
 
 pub fn validate_request(request: &Value) -> Result<()> {
     let request_object = object(request, "request")?;
+    allowed_fields(
+        request_object,
+        &[
+            "schemaVersion",
+            "runId",
+            "createdAt",
+            "status",
+            "executionMode",
+            "question",
+            "context",
+            "expectedPersonas",
+            "voting",
+            "adversarialReview",
+        ],
+        "request",
+    )?;
+    let schema_version = request_object.get("schemaVersion").and_then(Value::as_str);
     ensure!(
-        request_object.get("schemaVersion").and_then(Value::as_str) == Some("1.0"),
-        "request.schemaVersion must be 1.0."
+        matches!(schema_version, Some("1.0" | "1.1")),
+        "request.schemaVersion must be 1.0 or 1.1."
     );
     let run_id = string(required(request, "runId", "request")?, "runId", 20, 80)?;
     validate_run_id(run_id)?;
+    validate_timestamp(
+        required(request, "createdAt", "request")?,
+        "request.createdAt",
+    )?;
     string(
         required(request, "question", "request")?,
         "request.question",
@@ -262,6 +412,7 @@ pub fn validate_request(request: &Value) -> Result<()> {
         "request.expectedPersonas must contain the three canonical personas in order."
     );
     let voting = object(required(request, "voting", "request")?, "request.voting")?;
+    allowed_fields(voting, &["method", "criticalRiskVeto"], "request.voting")?;
     ensure!(
         voting.get("method").and_then(Value::as_str) == Some("majority"),
         "Only majority voting is supported."
@@ -272,6 +423,91 @@ pub fn validate_request(request: &Value) -> Result<()> {
             .is_some_and(Value::is_boolean),
         "criticalRiskVeto must be boolean."
     );
+    if schema_version == Some("1.1") {
+        ensure!(
+            matches!(
+                required(request, "executionMode", "request")?.as_str(),
+                Some("sealed-subagents" | "inline")
+            ),
+            "request.executionMode is invalid."
+        );
+        let review = object(
+            required(request, "adversarialReview", "request")?,
+            "request.adversarialReview",
+        )?;
+        allowed_fields(
+            review,
+            &[
+                "enabled",
+                "anonymizePersonas",
+                "maxChallengesPerCandidate",
+                "minimumSeverity",
+                "requireFalsificationTest",
+                "unresolvedCriticalAction",
+            ],
+            "request.adversarialReview",
+        )?;
+        ensure!(
+            required(
+                &request["adversarialReview"],
+                "enabled",
+                "request.adversarialReview"
+            )?
+            .is_boolean(),
+            "request.adversarialReview.enabled must be boolean."
+        );
+        ensure!(
+            required(
+                &request["adversarialReview"],
+                "anonymizePersonas",
+                "request.adversarialReview"
+            )? == true,
+            "request.adversarialReview.anonymizePersonas must be true."
+        );
+        ensure!(
+            matches!(
+                required(
+                    &request["adversarialReview"],
+                    "maxChallengesPerCandidate",
+                    "request.adversarialReview"
+                )?
+                .as_u64(),
+                Some(1..=20)
+            ),
+            "request.adversarialReview.maxChallengesPerCandidate must be 1-20."
+        );
+        ensure!(
+            matches!(
+                required(
+                    &request["adversarialReview"],
+                    "minimumSeverity",
+                    "request.adversarialReview"
+                )?
+                .as_str(),
+                Some("low" | "medium" | "high" | "critical")
+            ),
+            "request.adversarialReview.minimumSeverity is invalid."
+        );
+        ensure!(
+            required(
+                &request["adversarialReview"],
+                "requireFalsificationTest",
+                "request.adversarialReview"
+            )?
+            .is_boolean(),
+            "request.adversarialReview.requireFalsificationTest must be boolean."
+        );
+        ensure!(
+            required(
+                &request["adversarialReview"],
+                "unresolvedCriticalAction",
+                "request.adversarialReview"
+            )?
+            .as_str()
+                == Some("human_review"),
+            "request.adversarialReview.unresolvedCriticalAction must be human_review."
+        );
+    }
     Ok(())
 }
 
@@ -291,15 +527,11 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         "memoryCandidates",
         "challengeResponses",
     ];
-    for key in vote_object.keys() {
-        ensure!(
-            allowed.contains(&key.as_str()),
-            "Unexpected vote field: {key}"
-        );
-    }
+    allowed_fields(vote_object, &allowed, "vote")?;
+    let schema_version = vote_object.get("schemaVersion").and_then(Value::as_str);
     ensure!(
-        vote_object.get("schemaVersion").and_then(Value::as_str) == Some("1.0"),
-        "vote.schemaVersion must be 1.0."
+        matches!(schema_version, Some("1.0" | "1.1")),
+        "vote.schemaVersion must be 1.0 or 1.1."
     );
     let run_id = string(required(vote, "runId", "vote")?, "runId", 20, 80)?;
     validate_run_id(run_id)?;
@@ -334,9 +566,11 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         "vote.reasons must contain 1-12 entries."
     );
     let code_pattern = Regex::new(r"^[A-Z0-9_-]+$")?;
+    let mut evidence_ids = HashSet::new();
     for (index, reason) in reasons.iter().enumerate() {
         let name = format!("reasons[{index}]");
-        object(reason, &name)?;
+        let reason_object = object(reason, &name)?;
+        allowed_fields(reason_object, &["code", "statement", "evidence"], &name)?;
         let code = string(
             required(reason, "code", &name)?,
             &format!("{name}.code"),
@@ -357,6 +591,16 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
             .as_array()
             .ok_or_else(|| anyhow!("{name}.evidence must be an array."))?;
         ensure!(evidence.len() <= 12, "{name}.evidence must be an array.");
+        if schema_version == Some("1.1") {
+            for (evidence_index, item) in evidence.iter().enumerate() {
+                validate_structured_evidence(item, &format!("{name}.evidence[{evidence_index}]"))?;
+                let evidence_id = item["id"].as_str().expect("validated evidence ID");
+                ensure!(
+                    evidence_ids.insert(evidence_id),
+                    "Duplicate evidence ID: {evidence_id}"
+                );
+            }
+        }
     }
 
     string_array(
@@ -376,6 +620,11 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
     for (index, risk) in risks.iter().enumerate() {
         let name = format!("risks[{index}]");
         let risk_object = object(risk, &name)?;
+        allowed_fields(
+            risk_object,
+            &["severity", "statement", "mitigated", "mitigation"],
+            &name,
+        )?;
         let severity = required(risk, "severity", &name)?.as_str();
         ensure!(
             matches!(severity, Some("low" | "medium" | "high" | "critical")),
@@ -412,7 +661,18 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
     );
     for (index, candidate) in candidates.iter().enumerate() {
         let name = format!("memoryCandidates[{index}]");
-        object(candidate, &name)?;
+        let candidate_object = object(candidate, &name)?;
+        allowed_fields(
+            candidate_object,
+            &[
+                "principle",
+                "scopes",
+                "applicableWhen",
+                "notApplicableWhen",
+                "rationale",
+            ],
+            &name,
+        )?;
         string(
             required(candidate, "principle", &name)?,
             &format!("{name}.principle"),
@@ -458,6 +718,17 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         for (index, response) in responses.iter().enumerate() {
             let name = format!("challengeResponses[{index}]");
             let response_object = object(response, &name)?;
+            allowed_fields(
+                response_object,
+                &[
+                    "challengeId",
+                    "response",
+                    "rebuttal",
+                    "acceptedConditions",
+                    "evidence",
+                ],
+                &name,
+            )?;
             string(
                 required(response, "challengeId", &name)?,
                 &format!("{name}.challengeId"),
