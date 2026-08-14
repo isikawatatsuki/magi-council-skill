@@ -1,12 +1,13 @@
 use crate::adversarial::{context_for, seal_challenges, seal_round_vote, validate_challenges};
 use crate::core::{
     Agent, PERSONAS, agent_for_name, build_persona_context, extract_json_object, find_repo_root,
-    normalize_hook_payload, persona_for_agent, read_json, read_last_assistant_message, run_dir_for,
-    seal_vote, validate_vote,
+    normalize_hook_payload, read_json, read_last_assistant_message, run_dir_for, seal_vote,
+    state_dir, validate_vote,
 };
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use regex::Regex;
 use serde_json::{Value, json};
+use std::path::Path;
 
 fn flatten(value: &Value) -> String {
     value
@@ -19,16 +20,98 @@ fn blocked(reason: impl Into<String>) -> Value {
     json!({"decision": "block", "reason": reason.into()})
 }
 
+fn active_run_for_statuses(root: &Path, statuses: &[&str]) -> Result<Option<String>> {
+    let runs_dir = state_dir(root).join("runs");
+    if !runs_dir.exists() {
+        return Ok(None);
+    }
+    let mut matches = Vec::new();
+    for entry in std::fs::read_dir(runs_dir)? {
+        let request_path = entry?.path().join("request.json");
+        if !request_path.is_file() {
+            continue;
+        }
+        let request = read_json(&request_path)?;
+        if request
+            .get("status")
+            .and_then(Value::as_str)
+            .is_some_and(|status| statuses.contains(&status))
+        {
+            if let Some(run_id) = request.get("runId").and_then(Value::as_str) {
+                matches.push(run_id.to_owned());
+            }
+        }
+    }
+    match matches.as_slice() {
+        [] => Ok(None),
+        [run_id] => Ok(Some(run_id.clone())),
+        _ => bail!(
+            "Multiple MAGI runs are active in the same phase; finish or invalidate them before spawning another sealed subagent."
+        ),
+    }
+}
+
+fn receipt_matches(root: &Path, message: &str, agent: Agent) -> Result<bool> {
+    let persona_receipt = Regex::new(
+        r"(?i)(melchior|balthasar|casper):\s+(?:(initial|final)_)?vote_sealed\s+run=(magi-[a-z0-9-]+)\s+sha256=([0-9a-f]{16})",
+    )?;
+    let thomas_receipt = Regex::new(
+        r"(?i)thomas:\s+challenges_sealed\s+run=(magi-[a-z0-9-]+)\s+sha256=([0-9a-f]{16})",
+    )?;
+    match agent {
+        Agent::Persona(expected_persona) => {
+            let Some(captures) = persona_receipt.captures(message) else {
+                return Ok(false);
+            };
+            if captures[1].to_lowercase() != expected_persona {
+                return Ok(false);
+            }
+            let manifest = read_json(&run_dir_for(root, &captures[3])?.join("manifest.json"))?;
+            let pointer = captures.get(2).map_or_else(
+                || format!("/votes/{expected_persona}/sha256"),
+                |round| {
+                    format!(
+                        "/rounds/{}/{expected_persona}/sha256",
+                        round.as_str().to_lowercase()
+                    )
+                },
+            );
+            Ok(manifest
+                .pointer(&pointer)
+                .and_then(Value::as_str)
+                .is_some_and(|hash| hash.starts_with(&captures[4].to_lowercase())))
+        }
+        Agent::Thomas => {
+            let Some(captures) = thomas_receipt.captures(message) else {
+                return Ok(false);
+            };
+            let manifest = read_json(&run_dir_for(root, &captures[1])?.join("manifest.json"))?;
+            Ok(manifest
+                .pointer("/adversarial/challengesSha256")
+                .and_then(Value::as_str)
+                .is_some_and(|hash| hash.starts_with(&captures[2].to_lowercase())))
+        }
+    }
+}
+
 pub fn subagent_start(input: &Value) -> Result<Value> {
     let payload = normalize_hook_payload(input)?;
     let Some(agent) = agent_for_name(payload.agent_name.as_deref()) else {
         return Ok(json!({}));
     };
     let root = find_repo_root(Some(&payload.cwd))?;
-    let run_id = input
+    let explicit_run_id = input
         .get("runId")
         .or_else(|| input.get("run_id"))
         .and_then(Value::as_str);
+    let discovered_run_id = match (agent, explicit_run_id) {
+        (Agent::Thomas, None) => active_run_for_statuses(&root, &["challenging"])?,
+        (Agent::Persona(_), None) => {
+            active_run_for_statuses(&root, &["challenge_ready", "collecting_final"])?
+        }
+        _ => None,
+    };
+    let run_id = explicit_run_id.or(discovered_run_id.as_deref());
     let context = match (agent, run_id) {
         (Agent::Thomas, Some(run_id)) => context_for(&root, run_id, "thomas")?,
         (Agent::Persona(persona), Some(run_id)) => {
@@ -49,18 +132,35 @@ pub fn subagent_start(input: &Value) -> Result<Value> {
         (Agent::Persona(persona), None) => build_persona_context(&root, persona)?,
         (Agent::Thomas, None) => {
             return Ok(blocked(
-                "THOMAS requires runId in the subagentStart payload.",
+                "THOMAS requires exactly one run in the challenging state.",
             ));
         }
     };
-    Ok(json!({"additionalContext": context}))
+    Ok(json!({
+        "additionalContext": context,
+        "hookSpecificOutput": {
+            "hookEventName": "SubagentStart",
+            "additionalContext": context
+        }
+    }))
 }
 
 pub fn subagent_stop(input: &Value) -> Result<Value> {
     let payload = normalize_hook_payload(input)?;
-    if payload.agent_name.as_deref() == Some("magi-thomas") {
-        let response = payload.response.as_deref().unwrap_or_default();
-        let value = match extract_json_object(response) {
+    let Some(agent) = agent_for_name(payload.agent_name.as_deref()) else {
+        return Ok(json!({}));
+    };
+    let response_from_payload = payload.response.is_some();
+    let response = payload
+        .response
+        .clone()
+        .unwrap_or_else(|| read_last_assistant_message(payload.transcript_path.as_deref()));
+    let root = find_repo_root(Some(&payload.cwd))?;
+    if receipt_matches(&root, &response, agent)? {
+        return Ok(json!({}));
+    }
+    if agent == Agent::Thomas {
+        let value = match extract_json_object(&response) {
             Ok(v) => v,
             Err(e) => return Ok(blocked(format!("THOMAS challenge JSON was rejected: {e}"))),
         };
@@ -71,17 +171,21 @@ pub fn subagent_stop(input: &Value) -> Result<Value> {
         if let Err(e) = validate_challenges(&value, run_id, true) {
             return Ok(blocked(format!("THOMAS challenge JSON was rejected: {e}")));
         }
-        let root = find_repo_root(Some(&payload.cwd))?;
         return match seal_challenges(&root, &value, payload.agent_id.as_deref()) {
-            Ok(sealed) => Ok(json!({"decision": "allow", "modifiedResponse": sealed["receipt"]})),
+            Ok(sealed) if response_from_payload => {
+                Ok(json!({"decision": "allow", "modifiedResponse": sealed["receipt"]}))
+            }
+            Ok(sealed) => Ok(blocked(format!(
+                "Challenges are sealed. Reply with exactly this receipt and nothing else: {}",
+                sealed["receipt"].as_str().unwrap_or_default()
+            ))),
             Err(e) => Ok(blocked(format!("MAGI challenge sealing failed: {e}"))),
         };
     }
-    let Some(persona) = persona_for_agent(payload.agent_name.as_deref()) else {
-        return Ok(json!({}));
+    let Agent::Persona(persona) = agent else {
+        unreachable!();
     };
-    let response = payload.response.as_deref().unwrap_or_default();
-    let vote = match extract_json_object(response).and_then(|vote| {
+    let vote = match extract_json_object(&response).and_then(|vote| {
         validate_vote(&vote, Some(persona))?;
         Ok(vote)
     }) {
@@ -92,7 +196,6 @@ pub fn subagent_stop(input: &Value) -> Result<Value> {
             )));
         }
     };
-    let root = find_repo_root(Some(&payload.cwd))?;
     let request = read_json(
         &run_dir_for(&root, vote["runId"].as_str().unwrap_or_default())?.join("request.json"),
     )?;
@@ -115,7 +218,13 @@ pub fn subagent_stop(input: &Value) -> Result<Value> {
             .map(|s| json!({"receipt": s.receipt}))
     };
     match sealed {
-        Ok(sealed) => Ok(json!({"decision": "allow", "modifiedResponse": sealed["receipt"]})),
+        Ok(sealed) if response_from_payload => {
+            Ok(json!({"decision": "allow", "modifiedResponse": sealed["receipt"]}))
+        }
+        Ok(sealed) => Ok(blocked(format!(
+            "Vote is sealed. Reply with exactly this receipt and nothing else: {}",
+            sealed["receipt"].as_str().unwrap_or_default()
+        ))),
         Err(error) => Ok(blocked(format!(
             "MAGI sealing failed: {error}. Do not change the question or persona; return a valid vote JSON again."
         ))),
@@ -216,7 +325,7 @@ fn protected_patterns() -> Result<(Vec<Regex>, Vec<Regex>)> {
             r"{state}/runs/[^/]+/rounds/(?:initial|final)/sealed(?:/|\b)"
         ))?,
         Regex::new(&format!(
-            r"{state}/runs/[^/]+/adversarial/(?:mapping|challenges)\.json"
+            r"{state}/runs/[^/]+/adversarial/(?:input|mapping|challenges)\.json"
         ))?,
         Regex::new(&format!(r"{state}/runs/[^/]+/manifest\.json"))?,
         Regex::new(&format!(r"{state}/memory/personas(?:/|\b)"))?,
@@ -244,6 +353,24 @@ pub fn guard_tool_use(input: &Value) -> Result<Value> {
         .replace('\\', "/")
         .to_lowercase();
     let tool = payload.tool_name.unwrap_or_default().to_lowercase();
+    let mutation_targets = if tool == "apply_patch" {
+        let target_pattern = Regex::new(r"(?m)^\*\*\* (?:add|update|delete) file: ([^\r\n]+)")?;
+        let patch = payload
+            .tool_args
+            .get("input")
+            .or_else(|| payload.tool_args.get("patch"))
+            .and_then(Value::as_str)
+            .unwrap_or(&text)
+            .replace('\\', "/")
+            .to_lowercase();
+        target_pattern
+            .captures_iter(&patch)
+            .map(|captures| captures[1].to_owned())
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        text.clone()
+    };
     let (protected_read, protected_mutation) = protected_patterns()?;
     let is_read_like = ["view", "grep", "glob", "read"].contains(&tool.as_str());
     let is_mutation = [
@@ -262,7 +389,7 @@ pub fn guard_tool_use(input: &Value) -> Result<Value> {
     if is_mutation
         && protected_mutation
             .iter()
-            .any(|pattern| pattern.is_match(&text))
+            .any(|pattern| pattern.is_match(&mutation_targets))
     {
         return Ok(deny(
             "Protected MAGI state may be changed only by the reviewed MAGI binary and explicit human memory approval.",
@@ -303,7 +430,7 @@ pub fn redact_tool_result(input: &Value) -> Result<Value> {
         .unwrap_or_else(|| flatten(&payload.tool_result));
     let state = format!(r"{}magi", r"\.");
     let sensitive = Regex::new(&format!(
-        r#"(?i){state}/runs/[^\s"']+/(?:sealed|rounds/(?:initial|final)/sealed|adversarial/(?:mapping|challenges)\.json|manifest\.json)|{state}/memory/personas"#
+        r#"(?i){state}/runs/[^\s"']+/(?:sealed|rounds/(?:initial|final)/sealed|adversarial/(?:input|mapping|challenges)\.json|manifest\.json)|{state}/memory/personas"#
     ))?;
     if !sensitive.is_match(&result.replace('\\', "/")) {
         return Ok(json!({}));
@@ -343,5 +470,26 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(output["permissionDecision"], "allow");
+    }
+
+    #[test]
+    fn guard_checks_apply_patch_targets_instead_of_documentation_body() {
+        let allowed = guard_tool_use(&json!({
+            "toolName": "apply_patch",
+            "toolArgs": {
+                "input": "*** Begin Patch\n*** Update File: /repo/README.md\n+Documents .magi/config.json\n*** End Patch"
+            }
+        }))
+        .unwrap();
+        assert_eq!(allowed["permissionDecision"], "allow");
+
+        let denied = guard_tool_use(&json!({
+            "toolName": "apply_patch",
+            "toolArgs": {
+                "input": "*** Begin Patch\n*** Update File: /repo/.github/agents/magi-test.agent.md\n+Changed\n*** End Patch"
+            }
+        }))
+        .unwrap();
+        assert_eq!(denied["permissionDecision"], "deny");
     }
 }

@@ -328,7 +328,26 @@ fn adversarial_review_seals_two_rounds_and_tallies_only_final_votes() {
         );
     }
     let prepared = output_json(magi(project.path()).args(["run", "prepare-adversarial", run_id]));
-    assert_eq!(prepared["candidates"].as_array().unwrap().len(), 3);
+    assert_eq!(prepared["prepared"], true);
+    assert_eq!(prepared["candidateCount"], 3);
+    assert!(prepared.get("candidates").is_none());
+    let thomas_context = output_json(
+        magi(project.path())
+            .args(["hook", "subagent-start"])
+            .write_stdin(json!({"agent_type": "magi-thomas"}).to_string()),
+    );
+    assert!(
+        thomas_context["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap()
+            .contains(run_id)
+    );
+    assert!(
+        thomas_context["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap()
+            .contains("maxChallengesPerCandidate")
+    );
     let challenges = json!({
         "schemaVersion": "1.0", "runId": run_id,
         "challenges": [{
@@ -337,23 +356,118 @@ fn adversarial_review_seals_two_rounds_and_tallies_only_final_votes() {
             "falsificationTest": {"description": "Exercise rollback", "expectedEvidence": ["test log"]}, "status": "unresolved"
         }]
     });
-    output_json(
+    let transcript = project.path().join("subagent-transcript.jsonl");
+    fs::write(
+        &transcript,
+        json!({"type": "assistant", "message": {"content": challenges.to_string()}}).to_string(),
+    )
+    .unwrap();
+    let thomas_blocked = output_json(
         magi(project.path())
-            .args(["thomas", "seal"])
-            .write_stdin(challenges.to_string()),
+            .args(["hook", "subagent-stop"])
+            .write_stdin(
+                json!({
+                    "agent_type": "magi-thomas",
+                    "transcript_path": transcript,
+                    "stop_hook_active": false
+                })
+                .to_string(),
+            ),
     );
-    output_json(magi(project.path()).args(["run", "context", run_id, "melchior"]));
+    assert_eq!(thomas_blocked["decision"], "block");
+    let thomas_receipt = thomas_blocked["reason"]
+        .as_str()
+        .unwrap()
+        .split("nothing else: ")
+        .nth(1)
+        .unwrap();
+    fs::write(
+        &transcript,
+        json!({"type": "assistant", "message": {"content": thomas_receipt}}).to_string(),
+    )
+    .unwrap();
+    let thomas_accepted = output_json(
+        magi(project.path())
+            .args(["hook", "subagent-stop"])
+            .write_stdin(
+                json!({
+                    "agent_type": "magi-thomas",
+                    "transcript_path": transcript,
+                    "stop_hook_active": true
+                })
+                .to_string(),
+            ),
+    );
+    assert_eq!(thomas_accepted, json!({}));
+
+    let final_context = output_json(
+        magi(project.path())
+            .args(["hook", "subagent-start"])
+            .write_stdin(json!({"agent_type": "magi-melchior"}).to_string()),
+    );
+    assert!(
+        final_context["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap()
+            .contains("initialVote")
+    );
     for persona in ["melchior", "balthasar", "casper"] {
         let mut final_vote = vote(run_id, persona, "approve", json!([]));
         final_vote["challengeResponses"] = json!([{
             "challengeId": "challenge-001", "response": "uphold", "rebuttal": "Rollback was tested",
             "acceptedConditions": [], "evidence": ["test log"]
         }]);
-        output_json(
-            magi(project.path())
-                .args(["vote", "seal", "--persona", persona, "--round", "final"])
-                .write_stdin(final_vote.to_string()),
-        );
+        if persona == "melchior" {
+            fs::write(
+                &transcript,
+                json!({"type": "assistant", "message": {"content": final_vote.to_string()}})
+                    .to_string(),
+            )
+            .unwrap();
+            let blocked = output_json(
+                magi(project.path())
+                    .args(["hook", "subagent-stop"])
+                    .write_stdin(
+                        json!({
+                            "agent_type": "magi-melchior",
+                            "transcript_path": transcript,
+                            "stop_hook_active": false
+                        })
+                        .to_string(),
+                    ),
+            );
+            assert_eq!(blocked["decision"], "block");
+            let receipt = blocked["reason"]
+                .as_str()
+                .unwrap()
+                .split("nothing else: ")
+                .nth(1)
+                .unwrap();
+            fs::write(
+                &transcript,
+                json!({"type": "assistant", "message": {"content": receipt}}).to_string(),
+            )
+            .unwrap();
+            let accepted = output_json(
+                magi(project.path())
+                    .args(["hook", "subagent-stop"])
+                    .write_stdin(
+                        json!({
+                            "agent_type": "magi-melchior",
+                            "transcript_path": transcript,
+                            "stop_hook_active": true
+                        })
+                        .to_string(),
+                    ),
+            );
+            assert_eq!(accepted, json!({}));
+        } else {
+            output_json(
+                magi(project.path())
+                    .args(["vote", "seal", "--persona", persona, "--round", "final"])
+                    .write_stdin(final_vote.to_string()),
+            );
+        }
     }
     let decision = output_json(magi(project.path()).args(["run", "tally", run_id]));
     assert_eq!(decision["decision"], "approved");

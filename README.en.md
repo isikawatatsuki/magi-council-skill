@@ -193,7 +193,7 @@ Should this authentication design be released to production?
 Use src/auth and tests/auth as evidence.
 ```
 
-The Orchestrator normalizes the question and evidence, then distributes identical input to all three personas. Hooks seal each vote, and after all three votes exist, `magi run tally` calculates the final result. A host without Subagents or Hooks uses disclosed `inline` mode, which does not guarantee independent execution.
+The GitHub Copilot Orchestrator automatically enables adversarial review and runs three initial votes, THOMAS challenges, three final votes, tallying, and auditing. Hooks seal each output so the parent receives receipts only. A host without Subagents or Hooks uses disclosed `inline` mode, which does not run adversarial review or guarantee independent execution.
 
 ### 6. Review and audit the result
 
@@ -417,7 +417,7 @@ The project is inspired by the original framing but does not attempt to reproduc
 
 ## Adversarial Review (THOMAS)
 
-Set `adversarialReview.mode` in `.magi/config.json` to `enabled` to add THOMAS, a sealed non-voting adversarial verifier. THOMAS receives randomized anonymous initial decisions and challenges their assumptions, logic, evidence, boundaries, security, reliability, integrity, rollback, and human impact. THOMAS is not a fourth vote and never participates in the tally.
+Selecting `magi-orchestrator` in GitHub Copilot automatically enables `adversarialReview` in the run input. For manual CLI use or other hosts, set `adversarialReview.mode` in `.magi/config.json` to `enabled` or pass `"adversarialReview": true` when creating the run. THOMAS receives randomized anonymous initial decisions and challenges their assumptions, logic, evidence, boundaries, security, reliability, integrity, rollback, and human impact. THOMAS is not a fourth vote and never participates in the tally.
 
 The flow is: three initial votes, `magi run prepare-adversarial <runId>`, sealed THOMAS challenges, three final votes, and `magi run tally <runId>`. Initial votes, the anonymous mapping, challenges, and final votes are sealed separately; only final votes determine the result. A concrete unresolved Critical challenge suspends the run for human review instead of automatically rejecting it.
 

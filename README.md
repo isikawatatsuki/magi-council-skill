@@ -201,7 +201,7 @@ magi init
 根拠として src/auth と tests/auth を確認してください。
 ```
 
-Orchestratorは質問と判断材料を整理し、同じ入力を3人格へ配布します。各人格の投票はHookで封印され、3票が揃うと`magi run tally`が最終結果を計算します。SubagentまたはHookを利用できないホストでは、独立実行ではないことを明示した`inline`モードを使用します。
+GitHub CopilotのOrchestratorは敵対的検証を自動的に有効化し、初回3票、THOMASの反証、最終3票、集計、監査まで実行します。各出力はHookで封印され、親には受領通知だけが返ります。SubagentまたはHookを利用できないホストでは、独立実行ではないことを明示した`inline`モードを使用し、敵対的検証は行いません。
 
 ### 6. 結果を確認・監査する
 
@@ -446,7 +446,7 @@ MAGI Councilでは、意思決定に必要な観点を次の3つに分離して�
 
 ## 敵対的検証（THOMAS）
 
-`.magi/config.json` の `adversarialReview.mode` を `enabled` にすると、通常の3人格による初回投票を封印した後、非投票監査役 THOMAS が匿名化された判断を反証します。THOMASは4票目ではなく、採決には参加しません。
+GitHub Copilotで`magi-orchestrator`を使用すると、run入力の`adversarialReview`が自動的に有効化されます。手動CLIやほかのホストでは、`.magi/config.json`の`adversarialReview.mode`を`enabled`にするか、run作成入力へ`"adversarialReview": true`を指定します。通常の3人格による初回投票を封印した後、非投票監査役THOMASが匿名化された判断を反証します。THOMASは4票目ではなく、採決には参加しません。
 
 処理順は「初回3票 → `magi run prepare-adversarial <runId>` → THOMASの反証 → 最終3票 → `magi run tally <runId>`」です。初回・最終票、匿名対応表、反証は別々に封印され、最終票だけが正式な採決に使われます。未解決の具体的なCritical反証は自動否決せず、`suspended_for_human_review`として人間確認へ移行します。
 
