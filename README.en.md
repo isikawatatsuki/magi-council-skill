@@ -193,7 +193,7 @@ Should this authentication design be released to production?
 Use src/auth and tests/auth as evidence.
 ```
 
-The GitHub Copilot Orchestrator automatically enables adversarial review and runs three initial votes, THOMAS challenges, three final votes, tallying, and auditing. Hooks seal each output so the parent receives receipts only. A host without Subagents or Hooks uses disclosed `inline` mode, which does not run adversarial review or guarantee independent execution.
+The GitHub Copilot and Claude Code Orchestrators branch on the created run state. They either run the normal three-vote flow or the adversarial flow with three initial votes, THOMAS challenges, three final votes, tallying, and auditing. Project configuration and explicit user selection control adversarial review. Hooks or the reviewed `magi` CLI seal each output so the parent receives verified receipts only. A host without Subagents or Hooks uses disclosed `inline` mode, which does not run adversarial review or guarantee independent execution.
 
 ### 6. Review and audit the result
 
@@ -417,7 +417,7 @@ The project is inspired by the original framing but does not attempt to reproduc
 
 ## Adversarial Review (THOMAS)
 
-Selecting `magi-orchestrator` in GitHub Copilot automatically enables `adversarialReview` in the run input. For manual CLI use or other hosts, set `adversarialReview.mode` in `.magi/config.json` to `enabled` or pass `"adversarialReview": true` when creating the run. THOMAS receives randomized anonymous initial decisions and challenges their assumptions, logic, evidence, boundaries, security, reliability, integrity, rollback, and human impact. THOMAS is not a fourth vote and never participates in the tally.
+The GitHub Copilot and Claude Code Orchestrators respect project configuration and explicit user selection for `adversarialReview`. Set `adversarialReview.mode` in `.magi/config.json` to `enabled` or pass `"adversarialReview": true` when creating the run. THOMAS receives randomized anonymous initial decisions and challenges their assumptions, logic, evidence, boundaries, security, reliability, integrity, rollback, and human impact. THOMAS is not a fourth vote and never participates in the tally.
 
 The flow is: three initial votes, `magi run prepare-adversarial <runId>`, sealed THOMAS challenges, three final votes, and `magi run tally <runId>`. Initial votes, the anonymous mapping, challenges, and final votes are sealed separately; only final votes determine the result. A concrete unresolved Critical challenge suspends the run for human review instead of automatically rejecting it.
 

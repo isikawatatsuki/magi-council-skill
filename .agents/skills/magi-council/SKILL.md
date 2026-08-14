@@ -43,7 +43,7 @@ metadata:
 - `magi-melchior`、`magi-balthasar`、`magi-casper`をそれぞれ別のサブエージェントとして起動します。
 - 1つに結合したプロンプトとして実行してはいけません。
 - それぞれが`VOTE_SEALED`を返すまで待ちます。
-- 3つすべての受領通知が揃ってから、集計コマンドを実行します。
+- 3つすべての受領通知が揃ってから状態を確認し、通常Runは集計へ、敵対的検証RunはTHOMAS工程へ進みます。
 - ペルソナの応答本文が親へ返った場合はHook失敗として停止し、そのrunをsealed実行として扱ってはいけません。
 - Hook失敗後に、同じrunへinline投票を混在させてはいけません。明示的にinlineへ切り替える場合は、新しいrunを作成します。
 
@@ -79,7 +79,7 @@ metadata:
 }
 ```
 
-4. オブジェクトへ`"adversarialReview": true`を追加し、次のコマンドへパイプしてrunを作成します。
+4. 次のコマンドへオブジェクトをパイプしてrunを作成します。敵対的検証を明示する場合だけ`"adversarialReview": true`、無効化を明示する場合だけ`false`を追加します。指定がなければProject Configを尊重します。
 
 ```bash
 magi run create --stdin
@@ -93,30 +93,31 @@ runId <runId>を使用してください。MAGI投票スキーマに準拠する
 他のエージェントを呼び出さないでください。MAGIの状態を調べないでください。Markdownのコードフェンスを付けないでください。
 ```
 
-7. 親エージェントが初回投票の封印済み受領通知を3つだけ受け取ったことを確認します。VS CodeではHookが投票本文を封印した後、サブエージェントを1回だけ継続させて受領通知へ置換します。
-8. `magi run status <runId>`で`initial_ready`を確認します。
+7. 3つのサブエージェントを可能なHostでは並列起動し、親エージェントが封印済み受領通知を3つだけ受け取ったことを確認します。VS CodeではHookが投票本文を封印した後、サブエージェントを1回だけ継続させて受領通知へ置換します。
+8. `magi run status <runId>`で状態を確認します。
 
 ```bash
 magi run status <runId>
 ```
 
-9. 匿名化したTHOMAS入力を準備します。コマンドは準備完了receiptだけを返し、候補本文を親へ返しません。
+9. 状態が`ready`なら通常Runです。`magi run tally <runId>`と`magi run audit <runId>`を実行し、手順15へ進みます。状態が`initial_ready`なら敵対的検証Runとして次へ進みます。それ以外の状態、欠落Receipt、Vote本文の露出はfail closedで停止します。
+10. 匿名化したTHOMAS入力を準備します。コマンドは準備完了receiptだけを返し、候補本文を親へ返しません。
 
 ```bash
 magi run prepare-adversarial <runId>
 ```
 
-10. run IDだけを指定して`magi-thomas`を起動します。`CHALLENGES_SEALED`受領通知だけを受け取り、状態が`challenge_ready`であることを確認します。
-11. 同じ3ペルソナを再度個別に起動します。Hookが各ペルソナ自身の初回票と、その匿名候補に対する反証だけを注入します。
-12. 最終投票の受領通知が3つ揃い、状態が`final_ready`であることを確認します。
-13. 集計と監査を実行します。
+11. run IDだけを指定して`magi-thomas`を起動します。`CHALLENGES_SEALED`受領通知だけを受け取り、状態が`challenge_ready`であることを確認します。
+12. 同じ3ペルソナを再度、可能なHostでは並列起動します。Hookまたは`magi run context`が各ペルソナ自身の初回票と、その匿名候補に対する反証だけを渡します。
+13. 最終投票の受領通知が3つ揃い、状態が`final_ready`であることを確認します。
+14. 集計と監査を実行します。
 
 ```bash
 magi run tally <runId>
 magi run audit <runId>
 ```
 
-14. `.magi/runs/<runId>/decision.json`または`decision.md`だけを読み、次を提示します。
+15. `.magi/runs/<runId>/decision.json`または`decision.md`だけを読み、次を提示します。
 
 - 決定
 - 得票数
