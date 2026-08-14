@@ -284,6 +284,13 @@ critical risk vetoは多数決より優先されます。確信度は0から100�
 	},
 	"security": {
 		"redactProtectedToolResults": true
+	},
+	"adversarialReview": {
+		"mode": "disabled",
+		"thomasAvailable": true
+	},
+	"riskProfile": {
+		"highRiskDomains": []
 	}
 }
 ```
@@ -294,6 +301,9 @@ critical risk vetoは多数決より優先されます。確信度は0から100�
 | `voting.criticalRiskVeto` | 未緩和のcritical riskによる拒否権を有効化 |
 | `memory.maxItemsPerPersona` | 人格コンテキストへ読み込む承認済みメモリの上限 |
 | `security.redactProtectedToolResults` | 将来の切替用に予約。現在のHookはこの値によらず秘匿処理を実行 |
+| `adversarialReview.mode` | `disabled`、常時実行の`enabled`、Evidence Trigger時だけ実行する`auto` |
+| `adversarialReview.thomasAvailable` | HostでTHOMASを安全に起動できるか。`auto` Trigger時にfalseなら人間確認へ停止 |
+| `riskProfile.highRiskDomains` | 全会一致でも`explicit_high_risk` Reviewを要求する明示的Domain |
 
 ## 投票データ
 
@@ -310,7 +320,7 @@ critical risk vetoは多数決より優先されます。確信度は0から100�
 | `assumptions` | 未確認事項や判断の前提 |
 | `memoryCandidates` | 再利用可能な判断原則の候補。1票につき最大3件 |
 
-新規投票は`schemaVersion: "1.1"`を使用します。各`reasons[].evidence[]`は、一意な`id`、`type`、検証対象の`claim`、確認日時`observedAt`に加えて、次の追跡先を持ちます。
+新規投票は`schemaVersion: "1.2"`を使用します。各`reasons[].evidence[]`は、一意な`id`、`type`、検証対象の`claim`、確認日時`observedAt`に加えて、次の追跡先を持ちます。Riskは`evidenceRefs`で同じVote内のIDを参照し、`evidenceAssessments`は各IDを`supports_approve`、`supports_reject`、`uncertain`として分類します。
 
 | Evidence type | 必須の追跡先 | 任意の補足 |
 | --- | --- | --- |
@@ -318,7 +328,7 @@ critical risk vetoは多数決より優先されます。確信度は0から100�
 | `test` | `command`、`outcome` | `output`、`commitSha` |
 | `issue` / `pull_request` / `external_document` | HTTP(S) `url` | `title` |
 
-確認できない内容はEvidenceとして捏造せず、`assumptions`、条件、棄権、低い確信度として表します。`schemaVersion: "1.0"`は既存Runの読み取り・監査互換のため引き続き受理されますが、新規投票には使用しません。
+確認できない内容はEvidenceとして捏造せず、`assumptions`、条件、棄権、低い確信度として表します。`schemaVersion: "1.0"`と`"1.1"`は既存Runの読み取り・監査互換のため引き続き受理されますが、新規投票には使用しません。
 
 ## 生成物
 
@@ -329,6 +339,7 @@ critical risk vetoは多数決より優先されます。確信度は0から100�
 | `request.json` | 質問、共有コンテキスト、実行モード、採決設定、状態 |
 | `manifest.json` | request、投票、決定のハッシュと完了状態。モデルへは非公開 |
 | `sealed/<persona>.json` | 人格ごとの封印済み投票。モデルへは非公開 |
+| `adversarial/review-analysis.json` | 初回票から決定論的に計算したTriggerとEvidence ID。モデルへは非公開 |
 | `decision.json` | 機械可読な最終結果 |
 | `decision.md` | 人間向けの最終レポート |
 
@@ -456,11 +467,13 @@ MAGI Councilでは、意思決定に必要な観点を次の3つに分離して�
 
 ## 敵対的検証（THOMAS）
 
-GitHub CopilotまたはClaude Codeで`magi-orchestrator`を使用すると、Project Configまたは利用者が指定した`adversarialReview`に従います。`.magi/config.json`の`adversarialReview.mode`を`enabled`にするか、run作成入力へ`"adversarialReview": true`を指定すると、通常の3人格による初回投票を封印した後、非投票監査役THOMASが匿名化された判断を反証します。THOMASは4票目ではなく、採決には参加しません。
+GitHub CopilotまたはClaude Codeで`magi-orchestrator`を使用すると、Project Configまたは利用者が指定した`adversarialReview`に従います。`.magi/config.json`の`adversarialReview.mode`は`disabled`、常時検証する`enabled`、必要時だけ検証する`auto`から選べます。`enabled`またはrun作成入力の`"adversarialReview": true`では、初回投票後に非投票監査役THOMASが匿名化された判断を反証します。THOMASは4票目ではなく、採決には参加しません。
 
 処理順は「初回3票 → `magi run prepare-adversarial <runId>` → THOMASの反証 → 最終3票 → `magi run tally <runId>`」です。初回・最終票、匿名対応表、反証は別々に封印され、最終票だけが正式な採決に使われます。未解決の具体的なCritical反証は自動否決せず、`suspended_for_human_review`として人間確認へ移行します。
 
 このモードはモデル呼び出し回数とレイテンシを増やします。`inline`実行では厳密な独立性を保証できないため、敵対的検証との併用をCLIが拒否します。生成物は `rounds/initial/sealed`、`adversarial`、`rounds/final/sealed` に保存され、`magi run audit` がすべてのハッシュを検証します。無効時は従来の `collecting → ready → finalized` フローと既存Run形式を維持します。
+
+`auto`は初回3票から`split_vote`、`unsupported_critical`、`minority_unique_evidence`、`evidence_conflict`、`explicit_high_risk`をRust側で検出します。TriggerがなければTHOMASを起動しません。十分なEvidenceを持つ未緩和Criticalは少数票でも即vetoとなり、根拠不足のCriticalは再評価後も未解決なら人間確認へ停止します。Evidence sufficiencyはLocatorへ追跡できることだけを表し、真偽や`confidence`の採点ではありません。TriggerがあるのにTHOMASを利用できない場合も、多数決へFallbackせず停止します。TriggerとEvidence IDは`decision.json`へ保存され、`review-analysis.json`のHashと再計算結果をauditが検証します。
 
 ## セキュリティ上の注意
 

@@ -366,13 +366,14 @@ pub fn validate_request(request: &Value) -> Result<()> {
             "expectedPersonas",
             "voting",
             "adversarialReview",
+            "riskProfile",
         ],
         "request",
     )?;
     let schema_version = request_object.get("schemaVersion").and_then(Value::as_str);
     ensure!(
-        matches!(schema_version, Some("1.0" | "1.1")),
-        "request.schemaVersion must be 1.0 or 1.1."
+        matches!(schema_version, Some("1.0" | "1.1" | "1.2")),
+        "request.schemaVersion must be 1.0, 1.1, or 1.2."
     );
     let run_id = string(required(request, "runId", "request")?, "runId", 20, 80)?;
     validate_run_id(run_id)?;
@@ -423,7 +424,7 @@ pub fn validate_request(request: &Value) -> Result<()> {
             .is_some_and(Value::is_boolean),
         "criticalRiskVeto must be boolean."
     );
-    if schema_version == Some("1.1") {
+    if matches!(schema_version, Some("1.1" | "1.2")) {
         ensure!(
             matches!(
                 required(request, "executionMode", "request")?.as_str(),
@@ -439,6 +440,8 @@ pub fn validate_request(request: &Value) -> Result<()> {
             review,
             &[
                 "enabled",
+                "mode",
+                "thomasAvailable",
                 "anonymizePersonas",
                 "maxChallengesPerCandidate",
                 "minimumSeverity",
@@ -447,13 +450,14 @@ pub fn validate_request(request: &Value) -> Result<()> {
             ],
             "request.adversarialReview",
         )?;
+        let review_enabled = required(
+            &request["adversarialReview"],
+            "enabled",
+            "request.adversarialReview",
+        )?
+        .as_bool();
         ensure!(
-            required(
-                &request["adversarialReview"],
-                "enabled",
-                "request.adversarialReview"
-            )?
-            .is_boolean(),
+            review_enabled.is_some(),
             "request.adversarialReview.enabled must be boolean."
         );
         ensure!(
@@ -507,6 +511,47 @@ pub fn validate_request(request: &Value) -> Result<()> {
                 == Some("human_review"),
             "request.adversarialReview.unresolvedCriticalAction must be human_review."
         );
+        if schema_version == Some("1.2") {
+            let review_mode = required(
+                &request["adversarialReview"],
+                "mode",
+                "request.adversarialReview",
+            )?
+            .as_str();
+            ensure!(
+                matches!(review_mode, Some("disabled" | "enabled" | "auto")),
+                "request.adversarialReview.mode is invalid."
+            );
+            ensure!(
+                review_enabled == Some(review_mode != Some("disabled")),
+                "request.adversarialReview.enabled must match mode."
+            );
+            ensure!(
+                required(
+                    &request["adversarialReview"],
+                    "thomasAvailable",
+                    "request.adversarialReview"
+                )?
+                .is_boolean(),
+                "request.adversarialReview.thomasAvailable must be boolean."
+            );
+            let risk_profile = object(
+                required(request, "riskProfile", "request")?,
+                "request.riskProfile",
+            )?;
+            allowed_fields(risk_profile, &["highRiskDomains"], "request.riskProfile")?;
+            string_array(
+                required(
+                    &request["riskProfile"],
+                    "highRiskDomains",
+                    "request.riskProfile",
+                )?,
+                "request.riskProfile.highRiskDomains",
+                0,
+                12,
+                200,
+            )?;
+        }
     }
     Ok(())
 }
@@ -526,12 +571,13 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         "assumptions",
         "memoryCandidates",
         "challengeResponses",
+        "evidenceAssessments",
     ];
     allowed_fields(vote_object, &allowed, "vote")?;
     let schema_version = vote_object.get("schemaVersion").and_then(Value::as_str);
     ensure!(
-        matches!(schema_version, Some("1.0" | "1.1")),
-        "vote.schemaVersion must be 1.0 or 1.1."
+        matches!(schema_version, Some("1.0" | "1.1" | "1.2")),
+        "vote.schemaVersion must be 1.0, 1.1, or 1.2."
     );
     let run_id = string(required(vote, "runId", "vote")?, "runId", 20, 80)?;
     validate_run_id(run_id)?;
@@ -591,7 +637,7 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
             .as_array()
             .ok_or_else(|| anyhow!("{name}.evidence must be an array."))?;
         ensure!(evidence.len() <= 12, "{name}.evidence must be an array.");
-        if schema_version == Some("1.1") {
+        if matches!(schema_version, Some("1.1" | "1.2")) {
             for (evidence_index, item) in evidence.iter().enumerate() {
                 validate_structured_evidence(item, &format!("{name}.evidence[{evidence_index}]"))?;
                 let evidence_id = item["id"].as_str().expect("validated evidence ID");
@@ -622,7 +668,13 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         let risk_object = object(risk, &name)?;
         allowed_fields(
             risk_object,
-            &["severity", "statement", "mitigated", "mitigation"],
+            &[
+                "severity",
+                "statement",
+                "mitigated",
+                "mitigation",
+                "evidenceRefs",
+            ],
             &name,
         )?;
         let severity = required(risk, "severity", &name)?.as_str();
@@ -643,6 +695,21 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         if let Some(mitigation) = risk_object.get("mitigation") {
             string(mitigation, &format!("{name}.mitigation"), 1, 2_000)?;
         }
+        if schema_version == Some("1.2") {
+            string_array(
+                required(risk, "evidenceRefs", &name)?,
+                &format!("{name}.evidenceRefs"),
+                0,
+                12,
+                67,
+            )?;
+            for evidence_ref in risk["evidenceRefs"].as_array().into_iter().flatten() {
+                ensure!(
+                    evidence_ids.contains(evidence_ref.as_str().expect("validated evidence ref")),
+                    "{name}.evidenceRefs contains an unresolved evidence ID."
+                );
+            }
+        }
     }
     string_array(
         required(vote, "assumptions", "vote")?,
@@ -651,6 +718,47 @@ pub fn validate_vote(vote: &Value, expected_persona: Option<&str>) -> Result<()>
         12,
         1_000,
     )?;
+
+    if schema_version == Some("1.2") {
+        let assessments = required(vote, "evidenceAssessments", "vote")?
+            .as_array()
+            .ok_or_else(|| anyhow!("vote.evidenceAssessments must be an array."))?;
+        ensure!(
+            assessments.len() <= 144,
+            "vote.evidenceAssessments has too many entries."
+        );
+        let mut assessed = HashSet::new();
+        for (index, assessment) in assessments.iter().enumerate() {
+            let name = format!("evidenceAssessments[{index}]");
+            let assessment_object = object(assessment, &name)?;
+            allowed_fields(assessment_object, &["evidenceRef", "impact"], &name)?;
+            let evidence_ref = string(
+                required(assessment, "evidenceRef", &name)?,
+                &format!("{name}.evidenceRef"),
+                4,
+                67,
+            )?;
+            ensure!(
+                evidence_ids.contains(evidence_ref),
+                "{name}.evidenceRef is unresolved."
+            );
+            ensure!(
+                assessed.insert(evidence_ref),
+                "Duplicate evidence assessment: {evidence_ref}"
+            );
+            ensure!(
+                matches!(
+                    required(assessment, "impact", &name)?.as_str(),
+                    Some("supports_approve" | "supports_reject" | "uncertain")
+                ),
+                "{name}.impact is invalid."
+            );
+        }
+        ensure!(
+            assessed == evidence_ids,
+            "vote.evidenceAssessments must classify every evidence ID exactly once."
+        );
+    }
 
     let candidates = required(vote, "memoryCandidates", "vote")?
         .as_array()

@@ -16,6 +16,7 @@ user-invocable: false
 - MarkdownコードフェンスやJSON以外の説明文を出力しません。
 - `persona`は`balthasar`とし、提示されたrun IDを正確に複写します。
 - 不足する証拠を捏造せず、仮定、条件、棄権、低い信頼度で表現します。
+- 各Evidence IDへの影響をevidenceAssessmentsで分類し、RiskのevidenceRefsには同じVote内で定義したEvidence IDだけを指定します。根拠のないRiskは空配列にします。
 - Hookが封印後に受領通知を指定して再応答を求めた場合、その通知だけを正確に返します。
 
 ## 投票形式
@@ -24,7 +25,7 @@ user-invocable: false
 
 ```json
 {
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "runId": "magi-...",
   "persona": "balthasar",
   "decision": "approve | reject | abstain",
@@ -32,8 +33,9 @@ user-invocable: false
   "summary": "...",
   "reasons": [{"code": "...", "statement": "...", "evidence": [{"id": "ev-file-auth", "type": "file", "claim": "...", "observedAt": "2026-08-14T00:00:00Z", "path": "src/auth.rs", "lineStart": 10, "lineEnd": 24, "commitSha": "abcdef1"}]}],
   "conditions": [],
-  "risks": [{"severity": "low | medium | high | critical", "statement": "...", "mitigated": false, "mitigation": "..."}],
+  "risks": [{"severity": "low | medium | high | critical", "statement": "...", "mitigated": false, "mitigation": "...", "evidenceRefs": ["ev-file-auth"]}],
   "assumptions": [],
+  "evidenceAssessments": [{"evidenceRef": "ev-file-auth", "impact": "supports_approve | supports_reject | uncertain"}],
   "memoryCandidates": []
 }
 ```

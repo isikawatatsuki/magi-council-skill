@@ -10,7 +10,7 @@ fn schema(source: &str) -> Value {
 
 fn request() -> Value {
     json!({
-        "schemaVersion": "1.1",
+        "schemaVersion": "1.2",
         "runId": "magi-20260814000000-abcdef123456",
         "createdAt": "2026-08-14T00:00:00Z",
         "status": "collecting_initial",
@@ -21,18 +21,21 @@ fn request() -> Value {
         "voting": {"method": "majority", "criticalRiskVeto": true},
         "adversarialReview": {
             "enabled": true,
+            "mode": "enabled",
+            "thomasAvailable": true,
             "anonymizePersonas": true,
             "maxChallengesPerCandidate": 5,
             "minimumSeverity": "medium",
             "requireFalsificationTest": true,
             "unresolvedCriticalAction": "human_review"
-        }
+        },
+        "riskProfile": {"highRiskDomains": []}
     })
 }
 
 fn vote() -> Value {
     json!({
-        "schemaVersion": "1.1",
+        "schemaVersion": "1.2",
         "runId": "magi-20260814000000-abcdef123456",
         "persona": "melchior",
         "decision": "approve",
@@ -51,6 +54,13 @@ fn vote() -> Value {
         }],
         "conditions": [],
         "risks": [],
+        "evidenceAssessments": [
+            {"evidenceRef": "ev-file-auth", "impact": "supports_approve"},
+            {"evidenceRef": "ev-test-auth", "impact": "supports_approve"},
+            {"evidenceRef": "ev-issue-12", "impact": "supports_approve"},
+            {"evidenceRef": "ev-pr-25", "impact": "supports_approve"},
+            {"evidenceRef": "ev-doc-report", "impact": "supports_approve"}
+        ],
         "assumptions": [],
         "memoryCandidates": [],
         "challengeResponses": [{
@@ -107,14 +117,14 @@ fn schema_accepts_runtime_generated_normal_and_adversarial_requests() {
             .join("request.json");
         let generated: Value = serde_json::from_slice(&fs::read(request_path).unwrap()).unwrap();
 
-        assert_eq!(generated["schemaVersion"], "1.1");
+        assert_eq!(generated["schemaVersion"], "1.2");
         assert!(schema_accepts(&request_schema, &generated));
         validate_request(&generated).unwrap();
     }
 }
 
 #[test]
-fn schemas_accept_runtime_v11_request_and_structured_vote() {
+fn schemas_accept_runtime_v12_request_and_structured_vote() {
     let request_schema = schema(include_str!(
         "../.agents/skills/magi-council/schemas/request.schema.json"
     ));
@@ -131,7 +141,7 @@ fn schemas_accept_runtime_v11_request_and_structured_vote() {
 }
 
 #[test]
-fn schemas_and_runtime_reject_malformed_v11_evidence() {
+fn schemas_and_runtime_reject_malformed_v12_evidence() {
     let vote_schema = schema(include_str!(
         "../.agents/skills/magi-council/schemas/vote.schema.json"
     ));
@@ -208,7 +218,40 @@ fn legacy_v10_remains_readable_for_audit_compatibility() {
 }
 
 #[test]
-fn v11_request_rejects_unknown_fields_in_schema_and_runtime() {
+fn structured_v11_remains_readable_without_v12_relationship_fields() {
+    let request_schema = schema(include_str!(
+        "../.agents/skills/magi-council/schemas/request.schema.json"
+    ));
+    let vote_schema = schema(include_str!(
+        "../.agents/skills/magi-council/schemas/vote.schema.json"
+    ));
+
+    let mut old_request = request();
+    old_request["schemaVersion"] = json!("1.1");
+    old_request["adversarialReview"]
+        .as_object_mut()
+        .unwrap()
+        .remove("mode");
+    old_request["adversarialReview"]
+        .as_object_mut()
+        .unwrap()
+        .remove("thomasAvailable");
+    old_request.as_object_mut().unwrap().remove("riskProfile");
+    assert!(schema_accepts(&request_schema, &old_request));
+    validate_request(&old_request).unwrap();
+
+    let mut old_vote = vote();
+    old_vote["schemaVersion"] = json!("1.1");
+    old_vote
+        .as_object_mut()
+        .unwrap()
+        .remove("evidenceAssessments");
+    assert!(schema_accepts(&vote_schema, &old_vote));
+    validate_vote(&old_vote, Some("melchior")).unwrap();
+}
+
+#[test]
+fn v12_request_rejects_unknown_fields_in_schema_and_runtime() {
     let request_schema = schema(include_str!(
         "../.agents/skills/magi-council/schemas/request.schema.json"
     ));
@@ -217,4 +260,37 @@ fn v11_request_rejects_unknown_fields_in_schema_and_runtime() {
 
     assert!(!schema_accepts(&request_schema, &candidate));
     assert!(validate_request(&candidate).is_err());
+}
+
+#[test]
+fn v12_schema_requires_evidence_relationships_and_runtime_resolves_refs() {
+    let vote_schema = schema(include_str!(
+        "../.agents/skills/magi-council/schemas/vote.schema.json"
+    ));
+    let mut missing_assessments = vote();
+    missing_assessments
+        .as_object_mut()
+        .unwrap()
+        .remove("evidenceAssessments");
+    assert!(!schema_accepts(&vote_schema, &missing_assessments));
+
+    let mut missing_risk_refs = vote();
+    missing_risk_refs["risks"] = json!([{
+        "severity": "critical", "statement": "Risk", "mitigated": false
+    }]);
+    assert!(!schema_accepts(&vote_schema, &missing_risk_refs));
+
+    let mut unresolved = vote();
+    unresolved["risks"] = json!([{
+        "severity": "critical", "statement": "Risk", "mitigated": false,
+        "evidenceRefs": ["ev-does-not-exist"]
+    }]);
+    assert!(schema_accepts(&vote_schema, &unresolved));
+    assert!(validate_vote(&unresolved, None).is_err());
+
+    unresolved["risks"] = json!([]);
+    unresolved["evidenceAssessments"] = json!([{
+        "evidenceRef": "ev-does-not-exist", "impact": "supports_reject"
+    }]);
+    assert!(validate_vote(&unresolved, None).is_err());
 }

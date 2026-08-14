@@ -24,7 +24,7 @@ disable-model-invocation: true
 1. 判断に必要な証拠だけを収集し、質問と共有コンテキストを1つのJSONオブジェクトへ正規化して`magi run create --stdin`を実行します。利用者が敵対的検証を明示した場合だけ`"adversarialReview": true`、無効化を明示した場合だけ`false`を設定し、それ以外はProject Configを尊重します。
 2. 同一の質問、共有コンテキスト、run IDを使用して、`magi-melchior`、`magi-balthasar`、`magi-casper`を独立したサブエージェントとして並列起動します。
 3. 3つすべてから`VOTE_SEALED`受領通知だけが返ったことを確認し、`magi run status <runId>`を実行します。本文、欠落Receipt、状態不一致があればfail closedで停止します。
-4. 状態が`ready`なら通常Runとして手順8へ進みます。`initial_ready`なら`magi run prepare-adversarial <runId>`を実行します。コマンド出力をモデルへ転載したり要約したりしてはいけません。
+4. 状態が`ready`なら通常Runとして手順8へ進みます。`initial_ready`なら`magi run prepare-adversarial <runId>`を実行し、statusを再確認します。`auto`でTriggerがなければ`ready`となるため手順8へ、Capability不足なら`suspended_for_human_review`となるため手順8で停止Decisionを確定します。`challenging`の場合だけ手順5へ進みます。コマンド出力をモデルへ転載したり要約したりしてはいけません。
 5. run IDだけを指定して`magi-thomas`をサブエージェントとして起動します。`THOMAS: CHALLENGES_SEALED`受領通知だけが返ったことを確認し、`magi run status <runId>`で`challenge_ready`を確認します。
 6. 初回と同じ3つのペルソナを再び独立したサブエージェントとして並列起動します。各ペルソナ固有の初回票と反証はHookが注入するため、親から追加してはいけません。
 7. 3つすべてから最終`VOTE_SEALED`受領通知だけが返ったことを確認し、`magi run status <runId>`で`final_ready`を確認します。

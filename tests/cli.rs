@@ -83,6 +83,67 @@ fn vote(run_id: &str, persona: &str, decision: &str, conditions: Value) -> Value
     })
 }
 
+fn set_review_config(project: &TempDir, mode: &str, thomas_available: bool) {
+    let path = project.path().join(".magi/config.json");
+    let mut config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    config["adversarialReview"] = json!({
+        "mode": mode,
+        "thomasAvailable": thomas_available,
+        "anonymizePersonas": true,
+        "maxChallengesPerCandidate": 5,
+        "minimumSeverity": "medium",
+        "requireFalsificationTest": true,
+        "unresolvedCriticalAction": "human_review"
+    });
+    fs::write(path, serde_json::to_vec(&config).unwrap()).unwrap();
+}
+
+fn structured_vote(
+    run_id: &str,
+    persona: &str,
+    decision: &str,
+    evidence_ids: &[&str],
+    impact: &str,
+    critical_refs: Option<Value>,
+) -> Value {
+    let evidence = evidence_ids
+        .iter()
+        .map(|id| {
+            json!({
+                "id": id, "type": "file", "claim": format!("Claim for {id}"),
+                "observedAt": "2026-08-14T00:00:00Z", "path": format!("src/{id}.rs")
+            })
+        })
+        .collect::<Vec<_>>();
+    let assessments = evidence_ids
+        .iter()
+        .map(|id| json!({"evidenceRef": id, "impact": impact}))
+        .collect::<Vec<_>>();
+    let risks = critical_refs.map_or_else(Vec::new, |refs| {
+        vec![json!({
+            "severity": "critical", "statement": "Critical risk",
+            "mitigated": false, "evidenceRefs": refs
+        })]
+    });
+    json!({
+        "schemaVersion": "1.2", "runId": run_id, "persona": persona,
+        "decision": decision, "confidence": 80, "summary": format!("{persona} summary"),
+        "reasons": [{"code": "R1", "statement": "Reason", "evidence": evidence}],
+        "conditions": [], "risks": risks, "assumptions": [],
+        "evidenceAssessments": assessments, "memoryCandidates": []
+    })
+}
+
+fn seal_initial_votes(project: &TempDir, _run_id: &str, votes: [Value; 3]) {
+    for (persona, vote) in ["melchior", "balthasar", "casper"].into_iter().zip(votes) {
+        output_json(
+            magi(project.path())
+                .args(["vote", "seal", "--persona", persona, "--round", "initial"])
+                .write_stdin(vote.to_string()),
+        );
+    }
+}
+
 #[test]
 fn creates_imports_tallies_and_audits_run() {
     let project = project();
@@ -308,6 +369,273 @@ fn init_creates_defaults_without_overwriting_policy() {
     assert_eq!(
         fs::read_to_string(state.join("config.json")).unwrap(),
         "custom-policy"
+    );
+}
+
+#[test]
+fn auto_review_skips_thomas_for_unanimous_votes_and_audits_analysis() {
+    let project = project();
+    set_review_config(&project, "auto", true);
+    let created = output_json(
+        magi(project.path())
+            .args(["run", "create", "--stdin"])
+            .write_stdin(r#"{"question":"Release?","context":{}}"#),
+    );
+    let run_id = created["runId"].as_str().unwrap();
+    seal_initial_votes(
+        &project,
+        run_id,
+        [
+            structured_vote(
+                run_id,
+                "melchior",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            structured_vote(
+                run_id,
+                "balthasar",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            structured_vote(
+                run_id,
+                "casper",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+        ],
+    );
+    let prepared = output_json(magi(project.path()).args(["run", "prepare-adversarial", run_id]));
+    assert_eq!(prepared["reviewRequired"], false);
+    assert_eq!(prepared["status"], "ready");
+    assert!(
+        !project
+            .path()
+            .join(format!(".magi/runs/{run_id}/adversarial/input.json"))
+            .exists()
+    );
+
+    let decision = output_json(magi(project.path()).args(["run", "tally", run_id]));
+    assert_eq!(decision["decision"], "approved");
+    assert_eq!(decision["adversarialReview"]["performed"], false);
+    assert_eq!(decision["adversarialReview"]["resolution"], "not_required");
+    assert_eq!(decision["adversarialReview"]["reviewTriggers"], json!([]));
+    assert_eq!(
+        output_json(magi(project.path()).args(["run", "audit", run_id]))["valid"],
+        true
+    );
+
+    let analysis_path = project.path().join(format!(
+        ".magi/runs/{run_id}/adversarial/review-analysis.json"
+    ));
+    let mut analysis: Value = serde_json::from_slice(&fs::read(&analysis_path).unwrap()).unwrap();
+    analysis["reviewRequired"] = json!(true);
+    fs::write(&analysis_path, serde_json::to_vec(&analysis).unwrap()).unwrap();
+    let tampered = magi(project.path())
+        .args(["run", "audit", run_id])
+        .assert()
+        .failure();
+    let audit: Value = serde_json::from_slice(&tampered.get_output().stdout).unwrap();
+    assert_eq!(audit["valid"], false);
+}
+
+#[test]
+fn auto_review_applies_supported_critical_veto_without_thomas() {
+    let project = project();
+    set_review_config(&project, "auto", true);
+    let created = output_json(
+        magi(project.path())
+            .args(["run", "create", "--stdin"])
+            .write_stdin(r#"{"question":"Release?","context":{}}"#),
+    );
+    let run_id = created["runId"].as_str().unwrap();
+    seal_initial_votes(
+        &project,
+        run_id,
+        [
+            structured_vote(
+                run_id,
+                "melchior",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            structured_vote(
+                run_id,
+                "balthasar",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            structured_vote(
+                run_id,
+                "casper",
+                "reject",
+                &["ev-critical"],
+                "supports_reject",
+                Some(json!(["ev-critical"])),
+            ),
+        ],
+    );
+    let prepared = output_json(magi(project.path()).args(["run", "prepare-adversarial", run_id]));
+    assert_eq!(prepared["reviewRequired"], false);
+    let decision = output_json(magi(project.path()).args(["run", "tally", run_id]));
+    assert_eq!(decision["decision"], "rejected_by_veto");
+    assert_eq!(
+        decision["adversarialReview"]["resolution"],
+        "veto_without_review"
+    );
+    assert_eq!(
+        decision["veto"]["supportedCriticalRisks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn auto_review_fails_closed_when_thomas_is_unavailable() {
+    let project = project();
+    set_review_config(&project, "auto", false);
+    let created = output_json(
+        magi(project.path())
+            .args(["run", "create", "--stdin"])
+            .write_stdin(r#"{"question":"Release?","context":{}}"#),
+    );
+    let run_id = created["runId"].as_str().unwrap();
+    seal_initial_votes(
+        &project,
+        run_id,
+        [
+            structured_vote(run_id, "melchior", "approve", &[], "uncertain", None),
+            structured_vote(run_id, "balthasar", "approve", &[], "uncertain", None),
+            structured_vote(
+                run_id,
+                "casper",
+                "reject",
+                &[],
+                "uncertain",
+                Some(json!([])),
+            ),
+        ],
+    );
+    let prepared = output_json(magi(project.path()).args(["run", "prepare-adversarial", run_id]));
+    assert_eq!(prepared["status"], "suspended_for_human_review");
+    assert_eq!(prepared["reason"], "thomas_unavailable");
+    let decision = output_json(magi(project.path()).args(["run", "tally", run_id]));
+    assert_eq!(decision["decision"], "suspended_for_human_review");
+    assert_eq!(decision["adversarialReview"]["performed"], false);
+    assert_eq!(
+        decision["adversarialReview"]["resolution"],
+        "suspended_for_human_review"
+    );
+    assert_eq!(
+        decision["adversarialReview"]["suspensionReason"],
+        "thomas_unavailable"
+    );
+}
+
+#[test]
+fn auto_review_runs_thomas_for_split_vote_and_tallies_only_final_votes() {
+    let project = project();
+    set_review_config(&project, "auto", true);
+    let created = output_json(
+        magi(project.path())
+            .args(["run", "create", "--stdin"])
+            .write_stdin(r#"{"question":"Release?","context":{}}"#),
+    );
+    let run_id = created["runId"].as_str().unwrap();
+    seal_initial_votes(
+        &project,
+        run_id,
+        [
+            structured_vote(
+                run_id,
+                "melchior",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            structured_vote(
+                run_id,
+                "balthasar",
+                "approve",
+                &["ev-shared"],
+                "supports_approve",
+                None,
+            ),
+            structured_vote(
+                run_id,
+                "casper",
+                "reject",
+                &["ev-minority"],
+                "supports_reject",
+                None,
+            ),
+        ],
+    );
+    let prepared = output_json(magi(project.path()).args(["run", "prepare-adversarial", run_id]));
+    assert_eq!(prepared["prepared"], true);
+    let challenges = json!({"schemaVersion": "1.0", "runId": run_id, "challenges": []});
+    output_json(
+        magi(project.path())
+            .args(["thomas", "seal"])
+            .write_stdin(challenges.to_string()),
+    );
+    output_json(magi(project.path()).args(["run", "context", run_id, "melchior"]));
+    for persona in ["melchior", "balthasar", "casper"] {
+        let critical_refs = (persona == "casper").then(|| json!([]));
+        let mut final_vote = structured_vote(
+            run_id,
+            persona,
+            "reject",
+            &["ev-final"],
+            "supports_reject",
+            critical_refs,
+        );
+        final_vote["challengeResponses"] = json!([]);
+        output_json(
+            magi(project.path())
+                .args(["vote", "seal", "--persona", persona, "--round", "final"])
+                .write_stdin(final_vote.to_string()),
+        );
+    }
+    let decision = output_json(magi(project.path()).args(["run", "tally", run_id]));
+    assert_eq!(decision["decision"], "suspended_for_human_review");
+    assert_eq!(decision["voteCounts"]["reject"], 3);
+    assert_eq!(
+        decision["veto"]["unsupportedCriticalRisks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(decision["adversarialReview"]["performed"], true);
+    assert_eq!(
+        decision["adversarialReview"]["resolution"],
+        "suspended_for_human_review"
+    );
+    assert!(
+        decision["adversarialReview"]["reviewTriggers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|trigger| trigger["type"] == "split_vote")
+    );
+    assert_eq!(
+        output_json(magi(project.path()).args(["run", "audit", run_id]))["valid"],
+        true
     );
 }
 

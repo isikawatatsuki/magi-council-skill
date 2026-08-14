@@ -276,6 +276,13 @@ The project state contains the following `config.json` structure:
   },
   "security": {
     "redactProtectedToolResults": true
+  },
+  "adversarialReview": {
+    "mode": "disabled",
+    "thomasAvailable": true
+  },
+  "riskProfile": {
+    "highRiskDomains": []
   }
 }
 ```
@@ -286,6 +293,9 @@ The project state contains the following `config.json` structure:
 | `voting.criticalRiskVeto` | Enables rejection for an unmitigated critical risk. |
 | `memory.maxItemsPerPersona` | Limits the approved memory items loaded into a persona context. |
 | `security.redactProtectedToolResults` | Reserved for a future switch; current Hooks redact regardless of this value. |
+| `adversarialReview.mode` | `disabled`, always-on `enabled`, or evidence-triggered `auto`. |
+| `adversarialReview.thomasAvailable` | Whether the host can safely launch THOMAS; false fails closed when auto review triggers. |
+| `riskProfile.highRiskDomains` | Explicit domains that require review even for unanimous votes. |
 
 ## Vote Data
 
@@ -302,7 +312,7 @@ Votes are validated against `vote.schema.json`.
 | `assumptions` | Unverified facts or premises used in the judgment. |
 | `memoryCandidates` | Candidate reusable principles, limited to three per vote. |
 
-New votes use `schemaVersion: "1.1"`. Every `reasons[].evidence[]` item has a unique `id`, a `type`, the verifiable `claim`, an `observedAt` timestamp, and the following trace locator.
+New votes use `schemaVersion: "1.2"`. Every `reasons[].evidence[]` item has a unique `id`, a `type`, the verifiable `claim`, an `observedAt` timestamp, and the following trace locator. Risks reference IDs in the same vote through `evidenceRefs`; `evidenceAssessments` classifies each ID as `supports_approve`, `supports_reject`, or `uncertain`.
 
 | Evidence type | Required locator | Optional details |
 | --- | --- | --- |
@@ -310,7 +320,7 @@ New votes use `schemaVersion: "1.1"`. Every `reasons[].evidence[]` item has a un
 | `test` | `command`, `outcome` | `output`, `commitSha` |
 | `issue` / `pull_request` / `external_document` | HTTP(S) `url` | `title` |
 
-Do not fabricate unavailable evidence; record it as an assumption, condition, abstention, or lower confidence instead. `schemaVersion: "1.0"` remains accepted for reading and auditing existing runs, but must not be used for new votes.
+Do not fabricate unavailable evidence; record it as an assumption, condition, abstention, or lower confidence instead. `schemaVersion: "1.0"` and `"1.1"` remain accepted for reading and auditing existing runs, but must not be used for new votes.
 
 ## Generated Artifacts
 
@@ -321,6 +331,7 @@ Each run creates its own directory under the project state.
 | `request.json` | Question, shared context, execution mode, voting configuration, and state. |
 | `manifest.json` | Request, vote, and decision hashes plus finalization state; never exposed to a model. |
 | `sealed/<persona>.json` | One protected vote per persona; never exposed to a model. |
+| `adversarial/review-analysis.json` | Deterministic triggers and evidence IDs computed from initial votes; never exposed to a model. |
 | `decision.json` | Machine-readable final result. |
 | `decision.md` | Human-readable final report. |
 
@@ -427,11 +438,13 @@ The project is inspired by the original framing but does not attempt to reproduc
 
 ## Adversarial Review (THOMAS)
 
-The GitHub Copilot and Claude Code Orchestrators respect project configuration and explicit user selection for `adversarialReview`. Set `adversarialReview.mode` in `.magi/config.json` to `enabled` or pass `"adversarialReview": true` when creating the run. THOMAS receives randomized anonymous initial decisions and challenges their assumptions, logic, evidence, boundaries, security, reliability, integrity, rollback, and human impact. THOMAS is not a fourth vote and never participates in the tally.
+The GitHub Copilot and Claude Code Orchestrators respect project configuration and explicit user selection for `adversarialReview`. Set `adversarialReview.mode` to `disabled`, always-on `enabled`, or evidence-triggered `auto`; passing `"adversarialReview": true` selects `enabled` for that run. THOMAS receives randomized anonymous initial decisions and challenges their assumptions, logic, evidence, boundaries, security, reliability, integrity, rollback, and human impact. THOMAS is not a fourth vote and never participates in the tally.
 
 The flow is: three initial votes, `magi run prepare-adversarial <runId>`, sealed THOMAS challenges, three final votes, and `magi run tally <runId>`. Initial votes, the anonymous mapping, challenges, and final votes are sealed separately; only final votes determine the result. A concrete unresolved Critical challenge suspends the run for human review instead of automatically rejecting it.
 
 This mode adds model calls and latency. The CLI rejects adversarial review in `inline` mode because strict independence cannot be guaranteed. Artifacts live under `rounds/initial/sealed`, `adversarial`, and `rounds/final/sealed`; `magi run audit` verifies every recorded hash. Disabled mode preserves the legacy `collecting → ready → finalized` flow and old run compatibility.
+
+`auto` deterministically detects `split_vote`, `unsupported_critical`, `minority_unique_evidence`, `evidence_conflict`, and `explicit_high_risk` after the three initial votes. It makes no THOMAS call when no trigger exists. An unmitigated Critical risk with sufficient evidence vetoes even from a minority vote; an unsupported Critical risk is reviewed and suspends for human review if still unresolved. Evidence sufficiency means traceable locators only, not truth or confidence scoring. A required review also fails closed when THOMAS is unavailable. `decision.json` preserves triggers and evidence IDs, while audit verifies and recomputes the protected `review-analysis.json` artifact.
 
 ## Security Notes
 

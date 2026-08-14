@@ -9,7 +9,7 @@
     "expectedPersonas", "voting"
   ],
   "properties": {
-    "schemaVersion": { "enum": ["1.0", "1.1"] },
+    "schemaVersion": { "enum": ["1.0", "1.1", "1.2"] },
     "runId": { "type": "string", "pattern": "^magi-[a-z0-9-]+$", "minLength": 20, "maxLength": 80 },
     "createdAt": { "type": "string", "format": "date-time" },
     "status": {
@@ -41,18 +41,46 @@
       ],
       "properties": {
         "enabled": { "type": "boolean" },
+        "mode": { "enum": ["disabled", "enabled", "auto"] },
+        "thomasAvailable": { "type": "boolean" },
         "anonymizePersonas": { "const": true },
         "maxChallengesPerCandidate": { "type": "integer", "minimum": 1, "maximum": 20 },
         "minimumSeverity": { "enum": ["low", "medium", "high", "critical"] },
         "requireFalsificationTest": { "type": "boolean" },
         "unresolvedCriticalAction": { "const": "human_review" }
       }
+    },
+    "riskProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["highRiskDomains"],
+      "properties": {
+        "highRiskDomains": {
+          "type": "array", "maxItems": 12, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
     }
   },
   "allOf": [
     {
-      "if": { "properties": { "schemaVersion": { "const": "1.1" } }, "required": ["schemaVersion"] },
+      "if": { "properties": { "schemaVersion": { "enum": ["1.1", "1.2"] } }, "required": ["schemaVersion"] },
       "then": { "required": ["executionMode", "adversarialReview"] }
+    },
+    {
+      "if": { "properties": { "schemaVersion": { "const": "1.2" } }, "required": ["schemaVersion"] },
+      "then": {
+        "required": ["riskProfile"],
+        "properties": {
+          "adversarialReview": {
+            "required": ["mode", "thomasAvailable"],
+            "oneOf": [
+              { "properties": { "mode": { "const": "disabled" }, "enabled": { "const": false } } },
+              { "properties": { "mode": { "enum": ["enabled", "auto"] }, "enabled": { "const": true } } }
+            ]
+          }
+        }
+      }
     }
   ]
 }

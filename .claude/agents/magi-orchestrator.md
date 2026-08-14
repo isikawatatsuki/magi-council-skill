@@ -36,6 +36,8 @@ magi run prepare-adversarial <runId>
 
 Do not quote or summarize protected command output.
 
+Check status again. In `auto` mode, `ready` means no review trigger and proceeds directly to step 8, while `suspended_for_human_review` means the required THOMAS capability is unavailable and also proceeds to step 8 to persist the stopped decision. Spawn THOMAS only when status is `challenging`.
+
 5. Spawn `magi-thomas` with only the run ID and tell it to load its protected context with `magi run context <runId> thomas`. Require the verified `THOMAS: CHALLENGES_SEALED` receipt and confirm `challenge_ready` with `magi run status <runId>`.
 
 6. Spawn the same three personas concurrently for the final round. Send only the run ID and tell each to load its own protected final context with `magi run context <runId> <persona>`. Never send vote counts, another persona's output, or challenge bodies from the parent.
