@@ -218,6 +218,23 @@ fn creates_imports_tallies_and_audits_run() {
     let decision = output_json(magi(project.path()).args(["run", "tally", run_id]));
     assert_eq!(decision["decision"], "approved_with_conditions");
     assert_eq!(decision["voteCounts"]["approve"], 2);
+    assert_eq!(
+        decision["diagnostics"]["voteDistribution"]["unanimous"],
+        false
+    );
+    assert_eq!(
+        decision["diagnostics"]["voteDistribution"]["agreementRate"]["value"],
+        json!(0.666667)
+    );
+    assert_eq!(
+        decision["diagnostics"]["voteDistribution"]["entropyBits"],
+        json!(0.918296)
+    );
+    assert_eq!(decision["diagnostics"]["reasonCodeDuplicateCount"], 2);
+    assert_eq!(
+        decision["diagnostics"]["adversarialReview"]["challengeCount"],
+        Value::Null
+    );
     assert_eq!(decision["confidence"]["type"], "self_reported");
     assert_eq!(decision["confidence"]["calibrated"], false);
     assert!(
@@ -256,6 +273,16 @@ fn creates_imports_tallies_and_audits_run() {
     let audit = output_json(magi(project.path()).args(["run", "audit", run_id]));
     assert_eq!(audit["valid"], true);
     assert_eq!(audit["errors"], json!([]));
+    let markdown = fs::read_to_string(
+        project
+            .path()
+            .join(".magi/runs")
+            .join(run_id)
+            .join("decision.md"),
+    )
+    .unwrap();
+    assert!(markdown.contains("deterministic descriptive diagnostics, not quality scores"));
+    assert!(markdown.contains("THOMAS challenges: not applicable"));
 }
 
 #[test]
@@ -279,6 +306,55 @@ fn guard_denies_protected_read_and_allows_source_read() {
             ),
     );
     assert_eq!(allowed["permissionDecision"], "allow");
+}
+
+#[test]
+fn audit_accepts_integrity_valid_legacy_decision_without_diagnostics() {
+    let project = project();
+    let created = output_json(magi(project.path()).args([
+        "run",
+        "create",
+        "--question",
+        "Release?",
+        "--mode",
+        "inline",
+    ]));
+    let run_id = created["runId"].as_str().unwrap();
+    let votes = json!([
+        vote(run_id, "melchior", "approve", json!([])),
+        vote(run_id, "balthasar", "approve", json!([])),
+        vote(run_id, "casper", "reject", json!([]))
+    ]);
+    output_json(
+        magi(project.path())
+            .args(["run", "import-votes", run_id])
+            .write_stdin(votes.to_string()),
+    );
+    output_json(magi(project.path()).args(["run", "tally", run_id]));
+
+    let run_dir = project.path().join(".magi/runs").join(run_id);
+    let decision_path = run_dir.join("decision.json");
+    let manifest_path = run_dir.join("manifest.json");
+    let mut decision: Value = serde_json::from_slice(&fs::read(&decision_path).unwrap()).unwrap();
+    decision.as_object_mut().unwrap().remove("diagnostics");
+    decision["integrity"]["decisionSha256"] = json!("");
+    let hash = sha256_value(&decision).unwrap();
+    decision["integrity"]["decisionSha256"] = json!(hash);
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["decisionSha256"] = decision["integrity"]["decisionSha256"].clone();
+    fs::write(
+        &decision_path,
+        serde_json::to_vec_pretty(&decision).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let audit = output_json(magi(project.path()).args(["run", "audit", run_id]));
+    assert_eq!(audit["valid"], true);
 }
 
 #[test]
@@ -989,6 +1065,34 @@ fn adversarial_review_seals_two_rounds_and_tallies_only_final_votes() {
             .unwrap()
             .len(),
         3
+    );
+    assert_eq!(
+        decision["diagnostics"]["voteDistribution"]["unanimous"],
+        true
+    );
+    assert_eq!(
+        decision["diagnostics"]["voteDistribution"]["entropyBits"],
+        json!(0.0)
+    );
+    assert_eq!(
+        decision["diagnostics"]["adversarialReview"]["decisionChangeCount"],
+        3
+    );
+    assert_eq!(
+        decision["diagnostics"]["adversarialReview"]["confidenceChangeCount"],
+        0
+    );
+    assert_eq!(
+        decision["diagnostics"]["adversarialReview"]["challengeCount"],
+        1
+    );
+    assert_eq!(
+        decision["diagnostics"]["adversarialReview"]["acceptedChallengeCount"],
+        0
+    );
+    assert_eq!(
+        decision["diagnostics"]["adversarialReview"]["rejectedWithEvidenceCount"],
+        1
     );
     let audit = output_json(magi(project.path()).args(["run", "audit", run_id]));
     assert_eq!(audit["valid"], true);

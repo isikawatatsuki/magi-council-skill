@@ -8,7 +8,7 @@ use crate::{hash_request, sha256_value};
 use anyhow::{Result, anyhow, ensure};
 use chrono::Utc;
 use serde_json::{Map, Value, json};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -277,6 +277,118 @@ fn unique_strings(values: impl IntoIterator<Item = String>) -> Vec<String> {
         .collect()
 }
 
+fn rounded_six(value: f64) -> f64 {
+    (value * 1_000_000.0).round() / 1_000_000.0
+}
+
+fn decision_diagnostics(
+    votes: &Map<String, Value>,
+    initial_votes: Option<&Map<String, Value>>,
+    challenge_count: Option<usize>,
+    challenge_resolution: &Value,
+) -> Result<Value> {
+    let mut counts = BTreeMap::<String, usize>::new();
+    let mut reason_codes = Vec::new();
+    let mut risk_personas = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut persona_risks = BTreeMap::<String, BTreeSet<String>>::new();
+    for (persona, vote) in votes {
+        *counts
+            .entry(vote["decision"].as_str().unwrap_or("abstain").to_owned())
+            .or_default() += 1;
+        for reason in vote["reasons"].as_array().into_iter().flatten() {
+            if let Some(code) = reason["code"].as_str() {
+                reason_codes.push(code.to_owned());
+            }
+        }
+        for risk in vote["risks"].as_array().into_iter().flatten() {
+            let key = crate::canonical_json(risk)?;
+            risk_personas
+                .entry(key.clone())
+                .or_default()
+                .insert(persona.clone());
+            persona_risks
+                .entry(persona.clone())
+                .or_default()
+                .insert(key);
+        }
+    }
+    let total = votes.len();
+    let largest = counts.values().copied().max().unwrap_or(0);
+    let entropy = if total == 0 || counts.len() <= 1 {
+        0.0
+    } else {
+        -counts
+            .values()
+            .map(|count| {
+                let probability = *count as f64 / total as f64;
+                probability * probability.log2()
+            })
+            .sum::<f64>()
+    };
+    let distinct_codes = reason_codes.iter().collect::<HashSet<_>>().len();
+    let unique_risks = PERSONAS
+        .into_iter()
+        .map(|persona| {
+            let count = persona_risks.get(persona).map_or(0, |risks| {
+                risks
+                    .iter()
+                    .filter(|risk| {
+                        risk_personas
+                            .get(*risk)
+                            .is_some_and(|owners| owners.len() == 1)
+                    })
+                    .count()
+            });
+            (persona.to_owned(), json!(count))
+        })
+        .collect::<Map<_, _>>();
+    let (decision_changes, confidence_changes) = if let Some(initial_votes) = initial_votes {
+        let decision_changes = PERSONAS
+            .iter()
+            .filter(|persona| initial_votes[**persona]["decision"] != votes[**persona]["decision"])
+            .count();
+        let confidence_changes = PERSONAS
+            .iter()
+            .filter(|persona| {
+                initial_votes[**persona]["confidence"] != votes[**persona]["confidence"]
+            })
+            .count();
+        (json!(decision_changes), json!(confidence_changes))
+    } else {
+        (Value::Null, Value::Null)
+    };
+    let category_count = |pointer: &str| {
+        challenge_count.map(|_| {
+            challenge_resolution
+                .pointer(pointer)
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+        })
+    };
+    Ok(json!({
+        "interpretation": "descriptive_only_not_quality_or_correctness",
+        "voteDistribution": {
+            "unanimous": counts.len() == 1,
+            "agreementRate": {
+                "numerator": largest,
+                "denominator": total,
+                "value": if total == 0 { 0.0 } else { rounded_six(largest as f64 / total as f64) }
+            },
+            "entropyBits": rounded_six(entropy)
+        },
+        "adversarialReview": {
+            "decisionChangeCount": decision_changes,
+            "confidenceChangeCount": confidence_changes,
+            "challengeCount": challenge_count,
+            "acceptedChallengeCount": category_count("/accepted"),
+            "rejectedWithEvidenceCount": category_count("/rejectedWithEvidence"),
+            "unresolvedHighOrCriticalCount": category_count("/unresolvedHighOrCritical")
+        },
+        "reasonCodeDuplicateCount": reason_codes.len().saturating_sub(distinct_codes),
+        "uniqueRiskCountByPersona": unique_risks
+    }))
+}
+
 fn decision_markdown(decision: &Value) -> Result<String> {
     let counts = decision
         .get("voteCounts")
@@ -370,6 +482,43 @@ fn decision_markdown(decision: &Value) -> Result<String> {
                 .iter()
                 .map(|item| format!("- {}", item.as_str().unwrap_or_default())),
         );
+    }
+    if let Some(diagnostics) = decision
+        .get("diagnostics")
+        .filter(|value| value.is_object())
+    {
+        let display = |pointer: &str| {
+            diagnostics
+                .pointer(pointer)
+                .filter(|value| !value.is_null())
+                .map_or_else(|| "not applicable".to_owned(), Value::to_string)
+        };
+        lines.extend([
+            String::new(),
+            "## Diagnostics".to_owned(),
+            "These are deterministic descriptive diagnostics, not quality scores, correctness probabilities, or safety guarantees.".to_owned(),
+            format!("- Unanimous: {}", display("/voteDistribution/unanimous")),
+            format!(
+                "- Vote agreement rate: {}/{} ({})",
+                display("/voteDistribution/agreementRate/numerator"),
+                display("/voteDistribution/agreementRate/denominator"),
+                display("/voteDistribution/agreementRate/value")
+            ),
+            format!("- Vote entropy (bits): {}", display("/voteDistribution/entropyBits")),
+            format!("- Decision changes after review: {}", display("/adversarialReview/decisionChangeCount")),
+            format!("- Confidence changes after review: {}", display("/adversarialReview/confidenceChangeCount")),
+            format!("- THOMAS challenges: {}", display("/adversarialReview/challengeCount")),
+            format!("- Accepted challenges: {}", display("/adversarialReview/acceptedChallengeCount")),
+            format!("- Challenges rejected with evidence: {}", display("/adversarialReview/rejectedWithEvidenceCount")),
+            format!("- Unresolved high/critical challenges: {}", display("/adversarialReview/unresolvedHighOrCriticalCount")),
+            format!("- Duplicate reason-code occurrences: {}", display("/reasonCodeDuplicateCount")),
+            format!(
+                "- Persona-unique risks: melchior {}, balthasar {}, casper {}",
+                display("/uniqueRiskCountByPersona/melchior"),
+                display("/uniqueRiskCountByPersona/balthasar"),
+                display("/uniqueRiskCountByPersona/casper")
+            ),
+        ]);
     }
     if decision
         .get("adversarialReview")
@@ -708,15 +857,49 @@ pub fn tally_votes(root: &Path, run_id: &str) -> Result<Value> {
     } else {
         json!({"accepted": [], "rejectedWithEvidence": [], "unresolvedHighOrCritical": [], "suspendForHumanReview": false})
     };
-    let changes = if review_performed {
-        PERSONAS.iter().filter_map(|persona| {
-            let initial = read_json(&run_dir.join("rounds/initial/sealed").join(format!("{persona}.json"))).ok()?;
-            let final_vote = &votes[*persona];
-            (initial["decision"] != final_vote["decision"] || initial["confidence"] != final_vote["confidence"]).then(|| json!({"persona": persona, "initialDecision": initial["decision"], "finalDecision": final_vote["decision"], "initialConfidence": initial["confidence"], "finalConfidence": final_vote["confidence"]}))
-        }).collect::<Vec<_>>()
+    let initial_votes = if review_performed {
+        let mut initial = Map::new();
+        for persona in PERSONAS {
+            initial.insert(
+                persona.to_owned(),
+                read_json(
+                    &run_dir
+                        .join("rounds/initial/sealed")
+                        .join(format!("{persona}.json")),
+                )?,
+            );
+        }
+        Some(initial)
     } else {
-        Vec::new()
+        None
     };
+    let changes = initial_votes.as_ref().map_or_else(Vec::new, |initial_votes| {
+        PERSONAS
+            .iter()
+            .filter_map(|persona| {
+                let initial = &initial_votes[*persona];
+                let final_vote = &votes[*persona];
+                (initial["decision"] != final_vote["decision"]
+                    || initial["confidence"] != final_vote["confidence"])
+                    .then(|| json!({"persona": persona, "initialDecision": initial["decision"], "finalDecision": final_vote["decision"], "initialConfidence": initial["confidence"], "finalConfidence": final_vote["confidence"]}))
+            })
+            .collect::<Vec<_>>()
+    });
+    let challenge_count = if review_performed {
+        Some(
+            read_json(&run_dir.join("adversarial/challenges.json"))?["challenges"]
+                .as_array()
+                .map_or(0, Vec::len),
+        )
+    } else {
+        None
+    };
+    let diagnostics = decision_diagnostics(
+        &votes,
+        initial_votes.as_ref(),
+        challenge_count,
+        &challenge_resolution,
+    )?;
     let capability_suspended = manifest
         .pointer("/adversarial/suspensionReason")
         .and_then(Value::as_str)
@@ -771,6 +954,7 @@ pub fn tally_votes(root: &Path, run_id: &str) -> Result<Value> {
         "assumptions": assumptions,
         "personaSummaries": persona_summaries,
         "memoryCandidates": memory_candidates,
+        "diagnostics": diagnostics,
         "adversarialReview": {
             "enabled": adversarial_enabled,
             "mode": adversarial::mode(&request),
@@ -960,5 +1144,79 @@ mod tests {
             unique_strings(["one".to_owned(), "two".to_owned(), "one".to_owned()]),
             ["one", "two"]
         );
+    }
+
+    #[test]
+    fn diagnostics_are_deterministic_and_distinguish_review_changes() {
+        let mut votes = Map::new();
+        for (persona, decision, confidence, codes, risks) in [
+            (
+                "melchior",
+                "approve",
+                80,
+                vec!["R1", "M_ONLY"],
+                vec![
+                    json!({"severity":"high","statement":"shared","mitigated":false}),
+                    json!({"severity":"low","statement":"melchior-only","mitigated":true}),
+                ],
+            ),
+            (
+                "balthasar",
+                "approve",
+                70,
+                vec!["R1", "B_ONLY"],
+                vec![json!({"severity":"high","statement":"shared","mitigated":false})],
+            ),
+            (
+                "casper",
+                "reject",
+                60,
+                vec!["R1", "C_ONLY"],
+                vec![json!({"severity":"medium","statement":"casper-only","mitigated":false})],
+            ),
+        ] {
+            votes.insert(
+                persona.to_owned(),
+                json!({
+                    "decision": decision, "confidence": confidence,
+                    "reasons": codes.into_iter().map(|code| json!({"code": code})).collect::<Vec<_>>(),
+                    "risks": risks
+                }),
+            );
+        }
+        let mut initial = votes.clone();
+        initial["melchior"]["decision"] = json!("reject");
+        initial["balthasar"]["confidence"] = json!(60);
+        let resolution = json!({
+            "accepted": [{}],
+            "rejectedWithEvidence": [{}, {}],
+            "unresolvedHighOrCritical": [{}]
+        });
+        let diagnostics =
+            decision_diagnostics(&votes, Some(&initial), Some(4), &resolution).unwrap();
+        assert_eq!(diagnostics["voteDistribution"]["unanimous"], false);
+        assert_eq!(
+            diagnostics["voteDistribution"]["agreementRate"]["value"],
+            json!(0.666667)
+        );
+        assert_eq!(
+            diagnostics["voteDistribution"]["entropyBits"],
+            json!(0.918296)
+        );
+        assert_eq!(diagnostics["adversarialReview"]["decisionChangeCount"], 1);
+        assert_eq!(diagnostics["adversarialReview"]["confidenceChangeCount"], 1);
+        assert_eq!(diagnostics["adversarialReview"]["challengeCount"], 4);
+        assert_eq!(
+            diagnostics["adversarialReview"]["acceptedChallengeCount"],
+            1
+        );
+        assert_eq!(
+            diagnostics["adversarialReview"]["rejectedWithEvidenceCount"],
+            2
+        );
+        assert_eq!(diagnostics["reasonCodeDuplicateCount"], 2);
+        assert_eq!(diagnostics["uniqueRiskCountByPersona"]["melchior"], 1);
+        assert_eq!(diagnostics["uniqueRiskCountByPersona"]["balthasar"], 0);
+        assert_eq!(diagnostics["uniqueRiskCountByPersona"]["casper"], 1);
     }
 }
