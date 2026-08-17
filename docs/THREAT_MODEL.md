@@ -74,7 +74,9 @@ This mode describes a protocol result only when the Host actually provides separ
 
 Inline execution has no secret ballot or independent subagent-context guarantee. The same model context may create or observe every vote. The CLI can still validate JSON, apply deterministic rules, persist dissent, and audit recorded files, but it cannot retroactively create independence or confidentiality. An operator must select and disclose inline execution explicitly; it is not security-equivalent to sealed execution.
 
-Both labels depend on Host behavior. If capability metadata is unavailable, it must be reported as unknown rather than guessed. Runtime capability diagnosis and fail-closed mode admission are tracked separately from this descriptive threat model.
+Both labels depend on Host behavior. `magi doctor` reports missing Host metadata as `WARN`/unknown because static files cannot prove runtime behavior. Run creation is stricter: execution mode must be explicit, and `sealed-subagents` is rejected unless all seven required boolean capabilities are explicitly attested as available. Missing, unknown, and false values fail closed; there is no automatic inline fallback. The selected mode, rationale, and capability result are recorded in `manifest.json`.
+
+The path guard normalizes case, Windows separators, leading/parent path text, ordinary quoting, and common/double URL encodings before matching. It recognizes direct Bash/PowerShell/CMD commands when the protected path appears in the Hook payload. It does not resolve symlinks/junctions or fully evaluate variables, string concatenation, command substitution, aliases, subprocesses, or every Shell grammar. Those cases remain Host/OS residual risk and require OS sandboxing for stronger assurance. Post-tool redaction removes a mixed result in full when any recognized protected path is present; results without a protected path are left unchanged.
 
 ## Reproducibility and decision guarantees
 

@@ -1,4 +1,5 @@
 pub mod adversarial;
+pub mod capabilities;
 pub mod commands;
 pub mod core;
 pub mod hooks;

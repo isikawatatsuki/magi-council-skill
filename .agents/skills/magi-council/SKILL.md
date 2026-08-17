@@ -33,7 +33,7 @@ metadata:
 2. `subagentStart`と`subagentStop` Hookが有効である。
 3. ペルソナの応答本文ではなく、`VOTE_SEALED`受領通知だけが親へ返る。
 
-3つすべてを満たす場合は、GitHub CopilotのVS Code Agent modeを含めて`sealed-subagents`を使用します。能力を確認できないという理由だけで、直ちに`inline`へ移行してはいけません。まず利用可能なsubagentツールとカスタムエージェント一覧を確認します。
+加えてPre/Post Tool HookとVote本文の非公開を確認し、7項目の`hostCapabilities`をbooleanで明示します。すべてを満たす場合だけ`sealed-subagents`を使用します。欠落・不明・falseはrun作成を失敗させます。自動で`inline`へ移行してはいけません。inlineへ切り替える場合は利用者またはHostが明示的に選択して新しいrunを作成します。事前診断には`magi doctor --json --capabilities <path>`を使います。
 
 ### `sealed-subagents`（推奨）
 
@@ -68,6 +68,16 @@ metadata:
 ```json
 {
   "question": "提案された認証の変更をリリースすべきですか？",
+  "executionMode": "sealed-subagents",
+  "hostCapabilities": {
+    "customAgents": true,
+    "isolatedSubagentContexts": true,
+    "subagentStartHook": true,
+    "subagentStopHook": true,
+    "preToolUseHook": true,
+    "postToolUseHook": true,
+    "voteBodyConfidential": true
+  },
   "context": {
     "summary": "すべてのペルソナに同一内容で共有する関連事実。",
     "evidence": [
@@ -79,7 +89,7 @@ metadata:
 }
 ```
 
-4. 次のコマンドへオブジェクトをパイプしてrunを作成します。敵対的検証を明示する場合だけ`"adversarialReview": true`、無効化を明示する場合だけ`false`を追加します。指定がなければProject Configを尊重します。
+4. 次のコマンドへオブジェクトをパイプしてrunを作成します。上のCapability値はHostで実測した値だけを使い、推測してtrueにしてはいけません。敵対的検証を明示する場合だけ`"adversarialReview": true`、無効化を明示する場合だけ`false`を追加します。指定がなければProject Configを尊重します。
 
 ```bash
 magi run create --stdin

@@ -392,11 +392,25 @@ fn protected_patterns() -> Result<(Vec<Regex>, Vec<Regex>)> {
     Ok((protected_read, protected_mutation))
 }
 
+fn decode_path_escapes(text: &str) -> String {
+    let mut decoded = text.replace('\\', "/").to_lowercase();
+    for _ in 0..2 {
+        decoded = decoded
+            .replace("%2e", ".")
+            .replace("%2f", "/")
+            .replace("%5c", "/")
+            .replace("%22", "\"")
+            .replace("%27", "'");
+    }
+    while decoded.contains("//") {
+        decoded = decoded.replace("//", "/");
+    }
+    decoded
+}
+
 pub fn guard_tool_use(input: &Value) -> Result<Value> {
     let payload = normalize_hook_payload(input)?;
-    let text = flatten(&payload.tool_args)
-        .replace('\\', "/")
-        .to_lowercase();
+    let text = decode_path_escapes(&flatten(&payload.tool_args));
     let tool = payload.tool_name.unwrap_or_default().to_lowercase();
     let mutation_targets = if tool == "apply_patch" {
         let target_pattern = Regex::new(r"(?m)^\*\*\* (?:add|update|delete) file: ([^\r\n]+)")?;
@@ -440,7 +454,7 @@ pub fn guard_tool_use(input: &Value) -> Result<Value> {
             "Protected MAGI state may be changed only by the reviewed MAGI binary and explicit human memory approval.",
         ));
     }
-    if ["bash", "powershell", "execute"].contains(&tool.as_str()) {
+    if ["bash", "powershell", "execute", "cmd"].contains(&tool.as_str()) {
         let direct_secret_access = protected_read.iter().any(|pattern| pattern.is_match(&text));
         let mutation_command = Regex::new(
             r"rm|del|remove|write|set-content|out-file|sed\s+-i|perl\s+-i|node\s+-e|python\s+-c",
@@ -477,7 +491,7 @@ pub fn redact_tool_result(input: &Value) -> Result<Value> {
     let sensitive = Regex::new(&format!(
         r#"(?i){state}/runs/[^\s"']+/(?:sealed|rounds/(?:initial|final)/sealed|adversarial/(?:input|mapping|challenges|review-analysis)\.json|manifest\.json)|{state}/memory/personas"#
     ))?;
-    if !sensitive.is_match(&result.replace('\\', "/")) {
+    if !sensitive.is_match(&decode_path_escapes(&result)) {
         return Ok(json!({}));
     }
     let warning =
@@ -515,6 +529,44 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(output["permissionDecision"], "allow");
+    }
+
+    #[test]
+    fn guard_normalizes_protected_path_bypasses() {
+        for (tool, path) in [
+            ("view", "./.magi/runs/example/manifest.json"),
+            ("view", "foo/../.magi/runs/example/sealed/casper.json"),
+            ("view", r#"".MAGI\runs\example\manifest.json""#),
+            ("view", "%2emagi%2fruns%2fexample%2fmanifest%2ejson"),
+            (
+                "powershell",
+                "Get-Content '.magi/runs/example/manifest.json'",
+            ),
+            ("cmd", "type .magi\\runs\\example\\manifest.json"),
+        ] {
+            let output = guard_tool_use(&json!({
+                "toolName": tool,
+                "toolArgs": {"path": path, "command": path}
+            }))
+            .unwrap();
+            assert_eq!(output["permissionDecision"], "deny", "{tool}: {path}");
+        }
+    }
+
+    #[test]
+    fn redaction_handles_mixed_and_encoded_results_without_false_positives() {
+        let mixed = redact_tool_result(&json!({
+            "toolResult": "safe prefix .magi%2fruns%2fexample%2fsealed%2fcasper.json secret"
+        }))
+        .unwrap();
+        assert_eq!(
+            mixed["modifiedResult"]["textResultForLlm"],
+            "[MAGI protected content redacted by policy Hook]"
+        );
+        assert_eq!(
+            redact_tool_result(&json!({"toolResult": "src/main.rs"})).unwrap(),
+            json!({})
+        );
     }
 
     #[test]

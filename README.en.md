@@ -117,7 +117,7 @@ MAGI Council aims to ensure that:
 | Claude Code | `sealed-subagents` | Each persona seals its vote and returns only a receipt to the parent. |
 | GitHub Copilot VS Code Agent mode | `sealed-subagents` when supported | Uses separate Custom Agents and hides vote bodies from the parent when the subagent tool and Hooks are available; otherwise uses `inline`. |
 
-`sealed-subagents` is the default. Select the mode by capability, not by host name: Custom Agents, a subagent tool, and the `subagentStart`/`subagentStop` Hooks must be available. Use `inline` only when Subagents or Hooks are unavailable, and disclose that execution was not independent. Both modes use the same deterministic `magi` binary.
+There is no default execution mode. Every run must explicitly select `sealed-subagents` or `inline`. Sealed mode is admitted only when the Host explicitly attests Custom Agents, isolated Subagent contexts, start/stop Hooks, tool guard/redaction Hooks, and vote-body confidentiality. Missing, unknown, or false capability data fails closed and never falls back automatically to inline. Inline must also be selected explicitly. Both modes use the same deterministic `magi` binary.
 
 ## From Installation to First Decision
 
@@ -139,6 +139,16 @@ Verify the installation:
 ```bash
 magi version
 ```
+
+After copying the integration, run diagnostics. Human-readable output is the default; `--json` is intended for CI.
+
+```bash
+magi doctor
+magi doctor --json
+magi doctor --json --capabilities ./host-capabilities.json
+```
+
+`host-capabilities.json` is an attestation based on observation by the Host or operator; the CLI never infers it from a Host name. It contains boolean values for `customAgents`, `isolatedSubagentContexts`, `subagentStartHook`, `subagentStopHook`, `preToolUseHook`, `postToolUseHook`, and `voteBodyConfidential`. If optional `modelMetadata` is unavailable, doctor reports WARN instead of guessing. `OK` means confirmed, `WARN` means diagnosable but not sealed-eligible (for example, unavailable Host metadata), and `FAIL` means required project files or configuration are missing. Only `FAIL` exits 1; `OK` and `WARN` exit 0. `sealedSubagents.sealedEligible: true` means the attestation satisfies the prerequisites, not that the CLI independently proved actual Host behavior.
 
 ### 2. Copy the template into the target repository
 
@@ -204,7 +214,7 @@ Should this authentication design be released to production?
 Use src/auth and tests/auth as evidence.
 ```
 
-The GitHub Copilot and Claude Code Orchestrators branch on the created run state. They either run the normal three-vote flow or the adversarial flow with three initial votes, THOMAS challenges, three final votes, tallying, and auditing. Project configuration and explicit user selection control adversarial review. Hooks or the reviewed `magi` CLI seal each output so the parent receives verified receipts only. A host without Subagents or Hooks uses disclosed `inline` mode, which does not run adversarial review or guarantee independent execution.
+The GitHub Copilot and Claude Code Orchestrators branch on the created run state. They either run the normal three-vote flow or the adversarial flow with three initial votes, THOMAS challenges, three final votes, tallying, and auditing. Project configuration and explicit user selection control adversarial review. Hooks or the reviewed `magi` CLI seal each output so the parent receives verified receipts only. A Host without Subagents or Hooks must not start a sealed run; only a new run explicitly selected as `inline` may proceed. Inline does not run adversarial review or guarantee independent execution.
 
 ### 6. Review and audit the result
 
@@ -383,7 +393,8 @@ Decision inputs follow this precedence:
 | --- | --- |
 | `magi init` | Initialize project state without overwriting existing policy. |
 | `cargo test --locked` | Test validation, sealing, tallying, audit, and access guards. |
-| `magi run create --stdin` | Create a request and a random run ID. |
+| `magi doctor [--json] [--capabilities PATH]` | Diagnose setup and sealed eligibility (only FAIL exits 1). |
+| `magi run create --stdin` | Validate an explicit executionMode and create a request plus random run ID. |
 | `magi run status <runId>` | Report collection status without revealing vote bodies. |
 | `magi run import-votes <runId>` | Import three `inline` votes with an independence warning. |
 | `magi run tally <runId>` | Verify three votes and generate the final decision. |

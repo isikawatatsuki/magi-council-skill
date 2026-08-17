@@ -1,4 +1,5 @@
 use crate::adversarial;
+use crate::capabilities::evaluate_host_capabilities;
 use crate::core::{
     PERSONAS, RunLock, atomic_write_json, atomic_write_text, now_iso, random_hex, read_json,
     run_dir_for, state_dir, validate_request, validate_vote, verify_request_hash,
@@ -34,10 +35,30 @@ pub fn create_run(root: &Path, input: &Value) -> Result<Value> {
         .pointer("/voting/criticalRiskVeto")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let execution_mode = if input.get("executionMode").and_then(Value::as_str) == Some("inline") {
-        "inline"
+    let execution_mode = input
+        .get("executionMode")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            anyhow!("executionMode is required; explicitly choose sealed-subagents or inline.")
+        })?;
+    ensure!(
+        matches!(execution_mode, "sealed-subagents" | "inline"),
+        "executionMode must be sealed-subagents or inline."
+    );
+    let capability_check = evaluate_host_capabilities(input.get("hostCapabilities"));
+    if execution_mode == "sealed-subagents" {
+        ensure!(
+            capability_check["sealedEligible"] == true,
+            "sealed-subagents capability check failed: {}",
+            capability_check["reason"]
+                .as_str()
+                .unwrap_or("capabilities are unknown")
+        );
+    }
+    let mode_rationale = if execution_mode == "sealed-subagents" {
+        "Explicit sealed-subagents mode accepted after all required Host capabilities were attested."
     } else {
-        "sealed-subagents"
+        "Explicit inline mode selected; secret ballot and independent subagent contexts are not claimed."
     };
     let configured_mode = config
         .pointer("/adversarialReview/mode")
@@ -110,6 +131,9 @@ pub fn create_run(root: &Path, input: &Value) -> Result<Value> {
         &json!({
             "schemaVersion": "1.0",
             "runId": run_id,
+            "executionMode": execution_mode,
+            "modeRationale": mode_rationale,
+            "capabilityCheck": capability_check,
             "requestSha256": hash_request(&request)?,
             "votes": {},
             "rounds": {"initial": {}, "final": {}},
@@ -121,6 +145,9 @@ pub fn create_run(root: &Path, input: &Value) -> Result<Value> {
     Ok(json!({
         "runId": run_id,
         "status": initial_status,
+        "executionMode": execution_mode,
+        "modeRationale": mode_rationale,
+        "capabilityCheck": capability_check,
         "requestPath": format!(".magi/runs/{run_id}/request.json")
     }))
 }

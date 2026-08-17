@@ -125,7 +125,7 @@ MAGI Councilでは、以下を別々の要素として管理します。
 | Claude Code | `sealed-subagents` | Claude側のCustom AgentとHookを使い、各人格が投票を封印してreceiptだけを親へ返す |
 | GitHub Copilot VS Code Agent mode | `sealed-subagents`（対応時） | Custom Agent、subagentツール、Hookが利用可能なら、3人格を個別実行して投票本文を親から隠す。いずれかを利用できない場合のみ`inline` |
 
-`sealed-subagents`が既定です。ホスト名ではなく、Custom Agent、subagentツール、`subagentStart`/`subagentStop` Hookの利用可否で実行モードを決めます。SubagentまたはHookを利用できない場合だけ`inline`を指定し、独立実行ではないことを明示します。どちらのモードでも、最終結果は同じ`magi`バイナリが計算します。
+実行モードに既定値はありません。`sealed-subagents`または`inline`を必ず明示します。sealedはHostがCustom Agent、隔離Subagent Context、開始/停止Hook、Tool Guard/Redaction Hook、Vote本文の非公開を明示的に証明した場合だけ受理されます。情報が欠ける、型が不明、または1項目でも利用不可ならfail-closedでrun作成を拒否し、自動でinlineへ切り替えません。inlineも明示指定が必要です。どちらのモードでも、最終結果は同じ`magi`バイナリが計算します。
 
 ## 導入から使用まで
 
@@ -147,6 +147,16 @@ cargo test --locked
 ```bash
 magi version
 ```
+
+配置後は診断を実行します。Human-readable出力は既定、`--json`はCI向けです。
+
+```bash
+magi doctor
+magi doctor --json
+magi doctor --json --capabilities ./host-capabilities.json
+```
+
+`host-capabilities.json`はHostまたは運用者が実測して作る証明であり、CLIはHost名から推測しません。`customAgents`、`isolatedSubagentContexts`、`subagentStartHook`、`subagentStopHook`、`preToolUseHook`、`postToolUseHook`、`voteBodyConfidential`の7項目をbooleanで指定します。任意の`modelMetadata`が取得できない場合は推測せずWARNになります。`OK`は確認済み、`WARN`はHost情報不足など診断可能だがsealed適格ではない状態、`FAIL`は必須ファイルや設定の欠落です。終了コードは`FAIL`のみ1、`OK`/`WARN`は0です。`sealedSubagents.sealedEligible: true`は証明内容が必要条件を満たすことだけを表し、Host挙動そのものをCLIが独立検証した意味ではありません。
 
 ### 2. 対象リポジトリへテンプレートを配置する
 
@@ -212,7 +222,7 @@ magi init
 根拠として src/auth と tests/auth を確認してください。
 ```
 
-GitHub CopilotとClaude CodeのOrchestratorは、run作成後の状態に応じて通常の3票フロー、または初回3票、THOMASの反証、最終3票、集計、監査の敵対的検証フローを実行します。敵対的検証はProject Configまたは利用者の明示指定を尊重します。各出力はHookまたは`magi` CLIで封印され、親には検証済み受領通知だけが返ります。SubagentまたはHookを利用できないホストでは、独立実行ではないことを明示した`inline`モードを使用し、敵対的検証は行いません。
+GitHub CopilotとClaude CodeのOrchestratorは、run作成後の状態に応じて通常の3票フロー、または初回3票、THOMASの反証、最終3票、集計、監査の敵対的検証フローを実行します。敵対的検証はProject Configまたは利用者の明示指定を尊重します。各出力はHookまたは`magi` CLIで封印され、親には検証済み受領通知だけが返ります。SubagentまたはHookを利用できないホストではsealed runを開始せず、明示的に`inline`を選択した新しいrunだけを使用します。inlineでは独立実行でないことを開示し、敵対的検証は行いません。
 
 ### 6. 結果を確認・監査する
 
@@ -391,7 +401,8 @@ magi memory approve <runId> <candidateId> --approved-by "<承認者>"
 | --- | --- |
 | `magi init` | プロジェクト状態を既存ポリシーを上書きせず初期化 |
 | `cargo test --locked` | 検証、封印、採決、監査、アクセス制御をテスト |
-| `magi run create --stdin` | requestとランダムなrun IDを作成 |
+| `magi doctor [--json] [--capabilities PATH]` | 設定とsealed適格性を診断（FAILのみ終了コード1） |
+| `magi run create --stdin` | 明示したexecutionModeを検証し、requestとランダムなrun IDを作成 |
 | `magi run status <runId>` | 投票内容を公開せず、収集状態だけを表示 |
 | `magi run import-votes <runId>` | `inline`モードの3票を警告付きで取り込み |
 | `magi run tally <runId>` | 3票を検証し、最終結果を生成 |

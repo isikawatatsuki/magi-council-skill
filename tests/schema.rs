@@ -107,11 +107,18 @@ fn schema_accepts_runtime_generated_normal_and_adversarial_requests() {
     ));
     for mode in ["disabled", "enabled"] {
         let project = runtime_project(mode);
-        let created = create_run(
-            project.path(),
-            &json!({"question": "Release?", "context": {"evidence": []}}),
-        )
-        .unwrap();
+        let capabilities = json!({
+            "customAgents": true, "isolatedSubagentContexts": true,
+            "subagentStartHook": true, "subagentStopHook": true,
+            "preToolUseHook": true, "postToolUseHook": true,
+            "voteBodyConfidential": true
+        });
+        let input = if mode == "enabled" {
+            json!({"question": "Release?", "context": {"evidence": []}, "executionMode": "sealed-subagents", "hostCapabilities": capabilities})
+        } else {
+            json!({"question": "Release?", "context": {"evidence": []}, "executionMode": "inline"})
+        };
+        let created = create_run(project.path(), &input).unwrap();
         let request_path = project
             .path()
             .join(".magi/runs")
