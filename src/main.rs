@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
 use clap::{Args, Parser, Subcommand};
 use magi_council_cli::adversarial::{context_for, prepare, seal_challenges, seal_round_vote};
+use magi_council_cli::capabilities::doctor;
 use magi_council_cli::commands::{approve_memory, init_project, load_persona, seal_vote_input};
 use magi_council_cli::core::{extract_json_object, find_repo_root, parse_json, read_stdin};
 use magi_council_cli::hooks::{
@@ -10,6 +11,7 @@ use magi_council_cli::lifecycle::{
     audit_run, create_run, import_inline_votes, run_status, tally_votes,
 };
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Debug, Parser)]
@@ -23,6 +25,8 @@ struct Cli {
 enum Command {
     /// Verify the CLI installation.
     Version,
+    /// Diagnose project setup and sealed-subagents Host capabilities.
+    Doctor(DoctorArgs),
     /// Create, inspect, import, tally, or audit a council run.
     Run {
         #[command(subcommand)]
@@ -83,6 +87,19 @@ struct CreateArgs {
     /// Council question. Context defaults to an empty object.
     #[arg(long, conflicts_with = "stdin")]
     question: Option<String>,
+    /// Explicit execution mode. Required with --question; stdin JSON must also declare executionMode.
+    #[arg(long, value_parser = ["sealed-subagents", "inline"])]
+    mode: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct DoctorArgs {
+    /// Emit a machine-readable JSON report.
+    #[arg(long)]
+    json: bool,
+    /// Read explicit Host capability attestation JSON from this path.
+    #[arg(long)]
+    capabilities: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -130,17 +147,55 @@ fn execute() -> Result<bool> {
             println!("{}", env!("CARGO_PKG_VERSION"));
             Ok(true)
         }
+        Command::Doctor(args) => {
+            let root = find_repo_root(None)?;
+            let report = doctor(&root, args.capabilities.as_deref())?;
+            if args.json {
+                println!("{}", serde_json::to_string(&report)?);
+            } else {
+                println!(
+                    "MAGI doctor: {}",
+                    report["status"]
+                        .as_str()
+                        .unwrap_or("unknown")
+                        .to_uppercase()
+                );
+                for check in report["checks"].as_array().into_iter().flatten() {
+                    println!(
+                        "[{}] {}: {}",
+                        check["status"].as_str().unwrap_or("unknown").to_uppercase(),
+                        check["id"].as_str().unwrap_or("check"),
+                        check["reason"].as_str().unwrap_or("")
+                    );
+                }
+            }
+            Ok(report["valid"] == true)
+        }
         Command::Run { command } => {
             let root = find_repo_root(None)?;
             let output = match command {
                 RunCommand::Create(args) => {
-                    let input = if args.stdin {
+                    let mut input = if args.stdin {
                         parse_json(&read_stdin()?, "stdin request")?
                     } else if let Some(question) = args.question {
-                        json!({"question": question, "context": {}})
+                        json!({"question": question, "context": {}, "executionMode": args.mode.clone()})
                     } else {
                         return Err(anyhow!("Use --stdin with JSON or --question \"...\"."));
                     };
+                    if args.stdin {
+                        if let Some(mode) = args.mode {
+                            let object = input
+                                .as_object_mut()
+                                .ok_or_else(|| anyhow!("stdin request must be an object."))?;
+                            if object
+                                .get("executionMode")
+                                .is_some_and(|value| value != &Value::String(mode.clone()))
+                            {
+                                return Err(anyhow!("--mode conflicts with stdin executionMode."));
+                            }
+                            object.insert("executionMode".to_owned(), Value::String(mode));
+                        }
+                    }
                     create_run(&root, &input)?
                 }
                 RunCommand::Status { run_id } => run_status(&root, &run_id)?,

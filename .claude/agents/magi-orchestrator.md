@@ -24,6 +24,8 @@ You may gather repository evidence and run the reviewed `magi` binary. You must 
 magi run create --stdin
 ```
 
+入力には`executionMode`を必ず含める。`sealed-subagents`の場合は、実測した`customAgents`、`isolatedSubagentContexts`、`subagentStartHook`、`subagentStopHook`、`preToolUseHook`、`postToolUseHook`、`voteBodyConfidential`のboolean `hostCapabilities`も含める。欠落・不明・falseなら停止し、自動でinlineへ切り替えない。
+
 2. Spawn `magi-melchior`, `magi-balthasar`, and `magi-casper` concurrently as three separate Task subagents. Send each the same run ID, question, shared context, and the instruction that this is a normal or initial vote. Do not combine them into one prompt.
 
 3. Require exactly three verified `VOTE_SEALED` receipts, then run `magi run status <runId>`. A vote body, missing receipt, or unexpected state is a fail-closed error; never mix inline votes into the run.

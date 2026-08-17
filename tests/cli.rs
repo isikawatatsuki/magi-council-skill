@@ -83,6 +83,31 @@ fn vote(run_id: &str, persona: &str, decision: &str, conditions: Value) -> Value
     })
 }
 
+fn sealed_capabilities() -> Value {
+    json!({
+        "customAgents": true,
+        "isolatedSubagentContexts": true,
+        "subagentStartHook": true,
+        "subagentStopHook": true,
+        "preToolUseHook": true,
+        "postToolUseHook": true,
+        "voteBodyConfidential": true
+    })
+}
+
+fn sealed_request(adversarial_review: Option<bool>) -> Value {
+    let mut input = json!({
+        "question": "Release?",
+        "context": {},
+        "executionMode": "sealed-subagents",
+        "hostCapabilities": sealed_capabilities()
+    });
+    if let Some(enabled) = adversarial_review {
+        input["adversarialReview"] = json!(enabled);
+    }
+    input
+}
+
 fn set_review_config(project: &TempDir, mode: &str, thomas_available: bool) {
     let path = project.path().join(".magi/config.json");
     let mut config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -151,7 +176,9 @@ fn creates_imports_tallies_and_audits_run() {
     let created = output_json(
         magi(project.path())
             .args(["run", "create", "--stdin"])
-            .write_stdin(r#"{"question":"Release?","context":{"evidence":[]}}"#),
+            .write_stdin(
+                r#"{"question":"Release?","context":{"evidence":[]},"executionMode":"inline"}"#,
+            ),
     );
     let run_id = created["runId"].as_str().unwrap();
     let votes = json!([
@@ -272,6 +299,112 @@ fn sealing_hook_fails_closed_with_json() {
 }
 
 #[test]
+fn doctor_reports_json_and_does_not_guess_host_capabilities() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let report = output_json(magi(root).args(["doctor", "--json"]));
+    assert_eq!(report["valid"], true);
+    assert_eq!(report["status"], "warn");
+    assert_eq!(report["sealedSubagents"]["status"], "unknown");
+    assert_eq!(report["sealedSubagents"]["sealedEligible"], false);
+}
+
+#[test]
+fn sealed_mode_requires_complete_explicit_capabilities_and_records_rationale() {
+    let project = project();
+    let missing = magi(project.path())
+        .args(["run", "create", "--stdin"])
+        .write_stdin(r#"{"question":"Release?","context":{},"executionMode":"sealed-subagents"}"#)
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    assert!(
+        String::from_utf8(missing)
+            .unwrap()
+            .contains("capability check failed")
+    );
+
+    let mut unknown = sealed_request(None);
+    unknown["hostCapabilities"]["subagentStopHook"] = Value::Null;
+    let unknown_error = magi(project.path())
+        .args(["run", "create", "--stdin"])
+        .write_stdin(unknown.to_string())
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    assert!(
+        String::from_utf8(unknown_error)
+            .unwrap()
+            .contains("missing or unknown")
+    );
+
+    let created = output_json(
+        magi(project.path())
+            .args(["run", "create", "--stdin"])
+            .write_stdin(sealed_request(None).to_string()),
+    );
+    assert_eq!(created["executionMode"], "sealed-subagents");
+    assert_eq!(created["capabilityCheck"]["sealedEligible"], true);
+    assert!(
+        created["modeRationale"]
+            .as_str()
+            .unwrap()
+            .contains("attested")
+    );
+
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(
+            project
+                .path()
+                .join(created["requestPath"].as_str().unwrap())
+                .parent()
+                .unwrap()
+                .join("manifest.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["capabilityCheck"]["sealedEligible"], true);
+    assert_eq!(manifest["executionMode"], "sealed-subagents");
+}
+
+#[test]
+fn execution_mode_must_be_explicit_and_inline_does_not_claim_sealing() {
+    let project = project();
+    let missing_mode = magi(project.path())
+        .args(["run", "create", "--question", "Release?"])
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    assert!(
+        String::from_utf8(missing_mode)
+            .unwrap()
+            .contains("executionMode is required")
+    );
+    let created = output_json(magi(project.path()).args([
+        "run",
+        "create",
+        "--question",
+        "Release?",
+        "--mode",
+        "inline",
+    ]));
+    assert_eq!(created["executionMode"], "inline");
+    assert_eq!(created["capabilityCheck"]["sealedEligible"], false);
+    assert!(
+        created["modeRationale"]
+            .as_str()
+            .unwrap()
+            .contains("not claimed")
+    );
+}
+
+#[test]
 fn host_hooks_inject_seal_verify_and_redact() {
     let project = project();
     let context = output_json(
@@ -286,8 +419,14 @@ fn host_hooks_inject_seal_verify_and_redact() {
             .contains("melchior foundation")
     );
 
-    let created =
-        output_json(magi(project.path()).args(["run", "create", "--question", "Release?"]));
+    let created = output_json(magi(project.path()).args([
+        "run",
+        "create",
+        "--question",
+        "Release?",
+        "--mode",
+        "inline",
+    ]));
     let run_id = created["runId"].as_str().unwrap();
     let melchior_vote = vote(run_id, "melchior", "approve", json!([]));
     let blocked = output_json(
@@ -391,7 +530,7 @@ fn auto_review_skips_thomas_for_unanimous_votes_and_audits_analysis() {
     let created = output_json(
         magi(project.path())
             .args(["run", "create", "--stdin"])
-            .write_stdin(r#"{"question":"Release?","context":{}}"#),
+            .write_stdin(sealed_request(None).to_string()),
     );
     let run_id = created["runId"].as_str().unwrap();
     seal_initial_votes(
@@ -465,7 +604,7 @@ fn auto_review_applies_supported_critical_veto_without_thomas() {
     let created = output_json(
         magi(project.path())
             .args(["run", "create", "--stdin"])
-            .write_stdin(r#"{"question":"Release?","context":{}}"#),
+            .write_stdin(sealed_request(None).to_string()),
     );
     let run_id = created["runId"].as_str().unwrap();
     seal_initial_votes(
@@ -522,7 +661,7 @@ fn auto_review_fails_closed_when_thomas_is_unavailable() {
     let created = output_json(
         magi(project.path())
             .args(["run", "create", "--stdin"])
-            .write_stdin(r#"{"question":"Release?","context":{}}"#),
+            .write_stdin(sealed_request(None).to_string()),
     );
     let run_id = created["runId"].as_str().unwrap();
     seal_initial_votes(
@@ -564,7 +703,7 @@ fn auto_review_runs_thomas_for_split_vote_and_tallies_only_final_votes() {
     let created = output_json(
         magi(project.path())
             .args(["run", "create", "--stdin"])
-            .write_stdin(r#"{"question":"Release?","context":{}}"#),
+            .write_stdin(sealed_request(None).to_string()),
     );
     let run_id = created["runId"].as_str().unwrap();
     seal_initial_votes(
@@ -657,7 +796,7 @@ fn adversarial_review_seals_two_rounds_and_tallies_only_final_votes() {
     let created = output_json(
         magi(project.path())
             .args(["run", "create", "--stdin"])
-            .write_stdin(r#"{"question":"Release?","context":{},"adversarialReview":true}"#),
+            .write_stdin(sealed_request(Some(true)).to_string()),
     );
     let run_id = created["runId"].as_str().unwrap();
     for persona in ["melchior", "balthasar", "casper"] {
