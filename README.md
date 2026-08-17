@@ -364,7 +364,9 @@ critical risk vetoは多数決より優先されます。ConfidenceはPersonaが
 | `decision.json` | 機械可読な最終結果 |
 | `decision.md` | 人間向けの最終レポート |
 
-`decision.json`には、最終判定、票数、確信度範囲、拒否権、承認条件、high/criticalリスク、少数意見、前提、人格別要約、メモリ候補、完全性ハッシュが含まれます。
+`decision.json`には、最終判定、票数、確信度範囲、拒否権、承認条件、high/criticalリスク、少数意見、前提、人格別要約、メモリ候補、診断、完全性ハッシュが含まれます。
+
+`diagnostics`は比較・監査用の決定論的な記述値であり、品質スコア、正答率、安全性保証ではありません。`unanimous`、最大票への一致率（最大票数/3）、Shannon entropy（base 2、bit、小数6桁丸め）、Reason Codeの初回以外の重複出現数、完全に同一なcanonical Risk JSONが他Personaにない件数を記録します。敵対的検証を実施した場合は、初回から最終へのDecision変更人数とConfidence変更人数を別々に数え、THOMAS Challenge総数、採用数、Evidence付き棄却数、未解決High/Critical数も記録します。敵対的検証を実施していないRunでは、レビュー固有値は`null`（非該当）です。文字列の意味的類似性は判定しません。
 
 ## 監査
 

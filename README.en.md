@@ -356,7 +356,9 @@ Each run creates its own directory under the project state.
 | `decision.json` | Machine-readable final result. |
 | `decision.md` | Human-readable final report. |
 
-`decision.json` includes the decision, vote count, confidence range, veto result, conditions, high and critical risks, dissent, assumptions, persona summaries, memory candidates, and integrity hashes.
+`decision.json` includes the decision, vote count, confidence range, veto result, conditions, high and critical risks, dissent, assumptions, persona summaries, memory candidates, diagnostics, and integrity hashes.
+
+`diagnostics` contains deterministic descriptive values for comparison and audit; they are not quality scores, correctness rates, or safety guarantees. It records unanimity, agreement with the largest vote group (largest count/3), Shannon entropy (base 2 in bits, rounded to six decimals), repeated Reason Code occurrences after the first, and per-persona risks whose complete canonical risk JSON does not occur for another persona. When adversarial review runs, it separately counts personas that changed Decision and Confidence, plus total THOMAS challenges, accepted challenges, evidence-backed rejections, and unresolved high/critical challenges. Review-specific values are `null` (not applicable) when review was not performed. No semantic string similarity is inferred.
 
 ## Audit
 

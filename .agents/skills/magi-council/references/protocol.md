@@ -80,6 +80,10 @@ Riskは`evidenceRefs`で同じVote内のEvidence IDを参照し、各Personaは`
 
 Trigger、対象Evidence ID、Review実行有無は`review-analysis.json`と`decision.json`へ保存し、ManifestのSHA-256と初回票からの再計算結果を`magi run audit`が検証します。#12/#13がSchemaとStructured Evidence、#17が保証表現、#21が一般診断、#23がHost接続を担当し、この節はEvidence-awareな採決分岐だけを定義します。
 
+## Decision診断
+
+`decision.json.diagnostics`は投票分布と敵対的検証の影響を決定論的に記述するだけであり、品質、正答率、安全性を推定しません。最大票への一致率は最大票数/3、Vote Entropyはbase-2 Shannon entropyを小数6桁へ丸めます。Reason Code重複は全最終票で初回以外に現れた回数、Persona固有Riskはcanonical JSONが他Personaに現れないRiskのPersona別件数です。敵対的検証を実施しない場合、Decision/Confidence変更人数とChallenge関連値は`null`とします。文字列の意味的類似性は判定しません。
+
 ## 不変性
 
 - 各ペルソナが1つのrunで封印できる投票は最大1つです。
